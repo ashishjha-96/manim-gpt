@@ -8,12 +8,38 @@
     # pkgs.go
     pkgs.python314
     pkgs.uv
+    # Build dependencies for pycairo and manim
+    pkgs.gcc
+    pkgs.cairo
+    pkgs.cairo.dev
+    pkgs.pkg-config
+    pkgs.meson
+    pkgs.ninja
+    pkgs.ffmpeg
+    pkgs.pango
+    pkgs.pango.dev
+    pkgs.glib
+    pkgs.glib.dev
+    pkgs.harfbuzz
+    pkgs.harfbuzz.dev
+    pkgs.fontconfig
+    pkgs.fontconfig.dev
+    pkgs.freetype
+    pkgs.freetype.dev
+    pkgs.xorg.libxcb
+    pkgs.xorg.xcbutil
+    pkgs.xorg.libX11
+    pkgs.xorg.xorgproto
     # pkgs.python311Packages.pip
     # pkgs.nodejs_20
     # pkgs.nodePackages.nodemon
   ];
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    PKG_CONFIG_PATH = "${pkgs.cairo.dev}/lib/pkgconfig:${pkgs.pango.dev}/lib/pkgconfig:${pkgs.glib.dev}/lib/pkgconfig:${pkgs.harfbuzz.dev}/lib/pkgconfig:${pkgs.fontconfig.dev}/lib/pkgconfig:${pkgs.freetype.dev}/lib/pkgconfig:${pkgs.xorg.libxcb.dev}/lib/pkgconfig:${pkgs.xorg.libX11.dev}/lib/pkgconfig";
+    CFLAGS = "-I${pkgs.fontconfig.dev}/include -I${pkgs.freetype.dev}/include/freetype2 -I${pkgs.xorg.libxcb.dev}/include -I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include";
+    LDFLAGS = "-L${pkgs.fontconfig.dev}/lib -L${pkgs.freetype.dev}/lib -L${pkgs.xorg.libxcb}/lib -L${pkgs.xorg.libX11}/lib";
+  };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
