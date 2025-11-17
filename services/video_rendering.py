@@ -1,4 +1,5 @@
 import asyncio
+import os
 import shutil
 import sys
 import tempfile
@@ -24,6 +25,22 @@ async def render_manim_video(
     temp_dir = tempfile.mkdtemp(prefix="manim_")
 
     try:
+        # Set up fontconfig to find fonts in Nix store
+        # This fixes the "white boxes" issue where text doesn't render
+        fontconfig_dir = Path(temp_dir) / "fontconfig"
+        fontconfig_dir.mkdir()
+        fontconfig_path = fontconfig_dir / "fonts.conf"
+
+        with open(fontconfig_path, "w") as f:
+            f.write("""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- DejaVu fonts from Nix store -->
+  <dir>/nix/store/1mjlla0fc468wl9cphnn2ivpfx02mr7j-dejavu-fonts-minimal-2.37/share/fonts</dir>
+  <cachedir>~/.cache/fontconfig</cachedir>
+</fontconfig>
+""")
+
         # Write the generated code to a Python file
         script_path = Path(temp_dir) / "scene.py"
         with open(script_path, "w") as f:
@@ -49,12 +66,17 @@ async def render_manim_video(
             "--format", output_format,
         ]
 
+        # Set up environment variables for font rendering
+        env = os.environ.copy()
+        env['FONTCONFIG_FILE'] = str(fontconfig_path)
+
         # Run manim rendering
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=temp_dir
+            cwd=temp_dir,
+            env=env
         )
 
         stdout, stderr = await process.communicate()
@@ -104,7 +126,6 @@ async def render_manim_video(
 
         if not video_path or not video_path.exists():
             # Debug: list all files in temp_dir
-            import os
             all_files = []
             for root, dirs, files in os.walk(temp_dir):
                 for file in files:

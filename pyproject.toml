@@ -16,4 +16,7 @@ dependencies = [
     "aiofiles>=23.2.1",
     "gradio>=4.0.0",
     "httpx>=0.24.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "manimlib[latex]>=0.2.0",
 ]

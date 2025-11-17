@@ -177,6 +177,245 @@ async def generate_code_only(
         return f"Error: {str(e)}"
 
 
+async def iterative_generate(
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_iterations: int,
+    progress=gr.Progress()
+) -> Tuple[str, str, str, str]:
+    """
+    Generate Manim code with iterative refinement using session API.
+    This function calls the /session/generate endpoint which runs the full
+    LangGraph workflow with automatic validation and refinement.
+    """
+    if not prompt:
+        return "❌ **Error:** Please enter a prompt", "", "", ""
+
+    progress(0.0, desc="🚀 Starting session...")
+
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            # Start iterative generation session
+            progress(0.1, desc="📝 Creating session and running workflow...")
+
+            response = await client.post(
+                f"{API_URL}/session/generate",
+                json={
+                    "prompt": prompt,
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "max_iterations": max_iterations,
+                }
+            )
+
+            if response.status_code != 200:
+                error_detail = response.json().get("detail", "Unknown error")
+                error_msg = f"❌ **API Error ({response.status_code}):**\n\n{error_detail}"
+                return error_msg, "", "", ""
+
+            result = response.json()
+            session_id = result.get("session_id")
+            status = result.get("status")
+            current_iteration = result.get("current_iteration")
+            generated_code = result.get("generated_code", "")
+            validation_result = result.get("validation_result", {})
+            message = result.get("message", "")
+            is_complete = result.get("is_complete", False)
+
+            progress(0.8, desc="✅ Workflow complete, processing results...")
+
+            # Determine status emoji
+            status_emoji = {
+                "success": "✅",
+                "max_iterations_reached": "⚠️",
+                "failed": "❌",
+                "generating": "🔄",
+                "validating": "🔍",
+                "refining": "🔧"
+            }.get(status, "ℹ️")
+
+            # Format status info with better styling
+            status_text = f"""## {status_emoji} Session Status
+
+**Session ID:** `{session_id}`
+
+**Status:** {status.replace('_', ' ').title()}
+
+**Iterations Completed:** {current_iteration} / {max_iterations}
+
+**Message:** {message}
+
+**Complete:** {'Yes' if is_complete else 'No'}
+"""
+
+            # Format validation info with better styling
+            validation_text = "## 🔍 Validation Results\n\n"
+            if validation_result:
+                is_valid = validation_result.get("is_valid", False)
+                errors = validation_result.get("errors", [])
+                warnings = validation_result.get("warnings", [])
+
+                validation_text += f"**Valid Code:** {'✅ Yes' if is_valid else '❌ No'}\n\n"
+
+                if errors:
+                    validation_text += "### ❌ Errors Found:\n"
+                    for i, error in enumerate(errors[:5], 1):  # Show max 5 errors
+                        validation_text += f"{i}. `{error}`\n"
+                    if len(errors) > 5:
+                        validation_text += f"\n_...and {len(errors) - 5} more errors_\n"
+                    validation_text += "\n"
+
+                if warnings:
+                    validation_text += "### ⚠️ Warnings:\n"
+                    for i, warning in enumerate(warnings, 1):
+                        validation_text += f"{i}. `{warning}`\n"
+                    validation_text += "\n"
+
+                if is_valid:
+                    validation_text += "### 🎉 Code is ready to render!\n\n"
+                    validation_text += "Click **'Render Video'** below to create your animation."
+            else:
+                validation_text += "*No validation results available*"
+
+            progress(1.0, desc="✅ Complete!")
+
+            # Return formatted results
+            return (
+                status_text,
+                generated_code or "# No code generated yet",
+                validation_text,
+                session_id
+            )
+
+    except httpx.TimeoutException:
+        error_msg = "❌ **Timeout Error:**\n\nThe request took too long. The workflow may still be running on the server."
+        return error_msg, "", "", ""
+    except httpx.ConnectError:
+        error_msg = f"❌ **Connection Error:**\n\nCannot connect to API at {API_URL}\n\nMake sure the server is running."
+        return error_msg, "", "", ""
+    except Exception as e:
+        error_msg = f"❌ **Unexpected Error:**\n\n{str(e)}"
+        return error_msg, "", "", ""
+
+
+async def render_from_session(
+    session_id: str,
+    format: str,
+    quality: str,
+    background_color: str,
+    progress=gr.Progress()
+) -> Tuple[Optional[str], str]:
+    """
+    Render video from a session's validated code.
+    Uses /session/render and /session/download endpoints.
+    """
+    if not session_id:
+        return None, "❌ **Error:** Please generate code first to get a session ID"
+
+    if not session_id.strip():
+        return None, "❌ **Error:** Session ID is empty"
+
+    progress(0.0, desc="🎬 Starting render...")
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            # First, check session status to verify it has valid code
+            progress(0.1, desc="🔍 Verifying session...")
+
+            status_response = await client.get(
+                f"{API_URL}/session/status/{session_id}"
+            )
+
+            if status_response.status_code == 404:
+                return None, f"❌ **Error:** Session `{session_id}` not found. It may have been deleted."
+
+            if status_response.status_code != 200:
+                error_detail = status_response.json().get("detail", "Unknown error")
+                return None, f"❌ **Error:** Cannot verify session: {error_detail}"
+
+            session_info = status_response.json()
+            if not session_info.get("final_code"):
+                return None, f"❌ **Error:** Session has no validated code. Please generate valid code first.\n\nSession status: {session_info.get('status', 'unknown')}"
+
+            # Render video
+            progress(0.2, desc="🎨 Rendering video with Manim...")
+
+            response = await client.post(
+                f"{API_URL}/session/render",
+                json={
+                    "session_id": session_id,
+                    "format": format,
+                    "quality": quality,
+                    "background_color": background_color,
+                }
+            )
+
+            if response.status_code == 400:
+                error_detail = response.json().get("detail", "Unknown error")
+                return None, f"❌ **Render Error:**\n\n{error_detail}"
+
+            if response.status_code != 200:
+                error_detail = response.json().get("detail", "Unknown error")
+                return None, f"❌ **API Error ({response.status_code}):**\n\n{error_detail}"
+
+            result = response.json()
+            video_path = result.get("video_path")
+
+            if not video_path:
+                return None, "❌ **Error:** No video path in response"
+
+            # Download the video
+            progress(0.6, desc="⬇️ Downloading video...")
+
+            video_response = await client.get(
+                f"{API_URL}/session/download",
+                params={"video_path": video_path}
+            )
+
+            if video_response.status_code != 200:
+                return None, f"❌ **Download Error:** Status code {video_response.status_code}"
+
+            # Save video locally
+            progress(0.9, desc="💾 Saving video...")
+
+            # Create unique filename with session ID
+            file_ext = Path(video_path).suffix
+            filename = f"session_{session_id[:8]}_{format}{file_ext}"
+            local_path = Path(f"./generated_videos/{filename}")
+            local_path.parent.mkdir(exist_ok=True)
+
+            with open(local_path, "wb") as f:
+                f.write(video_response.content)
+
+            video_size = len(video_response.content)
+
+            progress(1.0, desc="✅ Complete!")
+
+            success_msg = f"""✅ **Video Rendered Successfully!**
+
+**File:** `{local_path}`
+
+**Size:** {video_size / 1024:.2f} KB
+
+**Format:** {format.upper()}
+
+**Quality:** {quality}
+
+**Session:** `{session_id[:16]}...`
+"""
+            return str(local_path), success_msg
+
+    except httpx.TimeoutException:
+        return None, "❌ **Timeout Error:** Video rendering took too long. Try a lower quality setting."
+    except httpx.ConnectError:
+        return None, f"❌ **Connection Error:** Cannot connect to API at {API_URL}"
+    except Exception as e:
+        return None, f"❌ **Unexpected Error:**\n\n{str(e)}"
+
+
 async def check_api_health() -> str:
     """Check if the API is running."""
     try:
@@ -386,6 +625,149 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                 outputs=code_output
             )
 
+        # Iterative Refinement Tab
+        with gr.TabItem("Iterative Refinement ⚡"):
+            gr.Markdown("""### Generate code with automatic error detection and refinement
+
+This mode uses LangGraph to iteratively generate and validate code, automatically fixing errors until valid code is produced.""")
+
+            with gr.Row():
+                with gr.Column():
+                    iter_prompt = gr.Textbox(
+                        label="Prompt",
+                        placeholder="Example: Create an animation of a rotating cube with changing colors",
+                        lines=3
+                    )
+
+                    with gr.Accordion("Settings", open=True):
+                        with gr.Row():
+                            iter_provider = gr.Dropdown(
+                                choices=["Popular Models"] + get_providers(),
+                                value="Popular Models",
+                                label="Provider",
+                                scale=1
+                            )
+                            iter_model = gr.Dropdown(
+                                choices=POPULAR_MODELS,
+                                value=DEFAULT_MODEL,
+                                label="Model (or type custom)",
+                                allow_custom_value=True,
+                                scale=2
+                            )
+                        iter_temperature = gr.Slider(
+                            minimum=0.0,
+                            maximum=2.0,
+                            value=0.7,
+                            step=0.1,
+                            label="Temperature"
+                        )
+                        iter_max_tokens = gr.Slider(
+                            minimum=500,
+                            maximum=4000,
+                            value=2000,
+                            step=100,
+                            label="Max Tokens"
+                        )
+                        iter_max_iterations = gr.Slider(
+                            minimum=1,
+                            maximum=10,
+                            value=5,
+                            step=1,
+                            label="Max Refinement Iterations"
+                        )
+
+                    # Add event handler for provider change
+                    iter_provider.change(
+                        fn=get_models_by_provider,
+                        inputs=[iter_provider],
+                        outputs=[iter_model]
+                    )
+
+                    generate_iter_btn = gr.Button("Generate with Refinement", variant="primary", size="lg")
+
+                with gr.Column():
+                    iter_status = gr.Markdown("Status will appear here...")
+                    iter_validation = gr.Markdown("Validation results will appear here...")
+
+            # Code and rendering section
+            with gr.Row():
+                with gr.Column():
+                    iter_code_output = gr.Code(
+                        label="Generated & Validated Code",
+                        language="python",
+                        lines=20
+                    )
+
+                with gr.Column():
+                    iter_session_id = gr.Textbox(
+                        label="Session ID (for rendering)",
+                        interactive=False
+                    )
+
+                    with gr.Row():
+                        render_format = gr.Dropdown(
+                            choices=["mp4", "webm", "gif", "mov"],
+                            value="mp4",
+                            label="Format"
+                        )
+                        render_quality = gr.Dropdown(
+                            choices=["low", "medium", "high", "4k"],
+                            value="medium",
+                            label="Quality"
+                        )
+
+                    render_bg_color = gr.Textbox(
+                        value="#000000",
+                        label="Background Color"
+                    )
+
+                    render_btn = gr.Button("Render Video", variant="secondary", size="lg")
+
+                    iter_video_output = gr.Video(label="Rendered Video")
+                    iter_render_status = gr.Textbox(label="Render Status", lines=2)
+
+            # Connect iterative generation
+            generate_iter_btn.click(
+                fn=iterative_generate,
+                inputs=[
+                    iter_prompt,
+                    iter_model,
+                    iter_temperature,
+                    iter_max_tokens,
+                    iter_max_iterations
+                ],
+                outputs=[iter_status, iter_code_output, iter_validation, iter_session_id]
+            )
+
+            # Connect rendering
+            render_btn.click(
+                fn=render_from_session,
+                inputs=[
+                    iter_session_id,
+                    render_format,
+                    render_quality,
+                    render_bg_color
+                ],
+                outputs=[iter_video_output, iter_render_status]
+            )
+
+            gr.Markdown("""
+            ### How it works:
+            1. **Generate with Refinement** - The system will:
+               - Generate initial Manim code
+               - Validate it (syntax + Manim dry-run)
+               - If errors found, automatically refine and retry
+               - Repeat until valid or max iterations reached
+
+            2. **Render Video** - Once you have valid code (session ID will appear), you can render it
+
+            ### Benefits:
+            - 🔄 Automatic error correction
+            - ✅ Validated code before rendering
+            - 📊 Full visibility into iterations and errors
+            - 💾 Session-based workflow
+            """)
+
         # Help Tab
         with gr.TabItem("Help"):
             gr.Markdown(
@@ -403,6 +785,14 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                 - Use this if you want to see the Manim code without rendering
                 - Faster than generating the full video
                 - You can copy and modify the code for your own use
+
+                ### Iterative Refinement (Recommended) ⚡
+                - Uses LangGraph for automatic error detection and correction
+                - Generates code, validates it, and automatically refines if errors are found
+                - Repeats until valid code is produced or max iterations reached
+                - Shows full visibility into each iteration, errors, and fixes
+                - Two-step process: Generate & Validate → Render Video
+                - Best for complex animations or when you want reliable code
 
                 ## Quality Presets
 

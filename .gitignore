@@ -51,3 +51,9 @@ uv.lock
 
 # FastAPI
 *.log
+
+
+# media files
+generated_videos
+media
+test_output
