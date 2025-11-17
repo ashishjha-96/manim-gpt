@@ -1,7 +1,7 @@
 [project]
-name = "myapp"
+name = "manim-gpt"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-powered Manim video generation API with multi-format support"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,4 +11,9 @@ dependencies = [
     "uvicorn>=0.34.0",
     "python-dotenv>=1.0.0",
     "google-generativeai>=0.8.0",
+    "manim>=0.18.0",
+    "python-multipart>=0.0.6",
+    "aiofiles>=23.2.1",
+    "gradio>=4.0.0",
+    "httpx>=0.24.0",
 ]

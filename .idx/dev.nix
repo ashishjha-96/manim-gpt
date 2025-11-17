@@ -51,16 +51,14 @@
     previews = {
       enable = true;
       previews = {
-        # web = {
-        #   # Example: run "npm run dev" with PORT set to IDX's defined port for previews,
-        #   # and show it in IDX's web preview panel
-        #   command = ["npm" "run" "dev"];
-        #   manager = "web";
-        #   env = {
-        #     # Environment variables to set for your server
-        #     PORT = "$PORT";
-        #   };
-        # };
+        web = {
+          command = ["uv" "run" "gradio_app.py"];
+          manager = "web";
+          env = {
+            PORT = "$PORT";
+            API_URL = "http://localhost:8000";
+          };
+        };
       };
     };
     # Workspace lifecycle hooks
@@ -74,8 +72,8 @@
       };
       # Runs when the workspace is (re)started
       onStart = {
-        # Example: start a background task to watch and re-build backend code
-        # watch-backend = "npm run watch-backend";
+        # Start the FastAPI backend server
+        start-api = "uv run uvicorn main:app --host 0.0.0.0 --port 8000 &";
       };
     };
   };
