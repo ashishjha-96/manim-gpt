@@ -22,6 +22,53 @@ POPULAR_MODELS = [
 ]
 
 
+async def fetch_providers() -> list:
+    """Fetch available LLM providers from the API."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{API_URL}/models/providers")
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("providers", [])
+            return []
+    except Exception as e:
+        print(f"Error fetching providers: {e}")
+        return []
+
+
+async def fetch_models_by_provider(provider: str) -> list:
+    """Fetch available models for a specific provider."""
+    if not provider:
+        return POPULAR_MODELS
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{API_URL}/models/providers/{provider}")
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("models", [])
+            return []
+    except Exception as e:
+        print(f"Error fetching models for {provider}: {e}")
+        return []
+
+
+def get_providers() -> list:
+    """Synchronous wrapper to get providers."""
+    return asyncio.run(fetch_providers())
+
+
+def get_models_by_provider(provider: str) -> gr.Dropdown:
+    """Update model dropdown based on selected provider."""
+    if provider == "Popular Models":
+        return gr.Dropdown(choices=POPULAR_MODELS, value=DEFAULT_MODEL, allow_custom_value=True)
+
+    models = asyncio.run(fetch_models_by_provider(provider))
+    if not models:
+        models = POPULAR_MODELS
+    return gr.Dropdown(choices=models, value=models[0] if models else DEFAULT_MODEL, allow_custom_value=True)
+
+
 async def generate_video(
     prompt: str,
     format: str,
@@ -190,12 +237,20 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                         )
 
                     with gr.Accordion("Advanced Settings", open=False):
-                        video_model = gr.Dropdown(
-                            choices=POPULAR_MODELS,
-                            value=DEFAULT_MODEL,
-                            label="Model",
-                            allow_custom_value=True
-                        )
+                        with gr.Row():
+                            video_provider = gr.Dropdown(
+                                choices=["Popular Models"] + get_providers(),
+                                value="Popular Models",
+                                label="Provider",
+                                scale=1
+                            )
+                            video_model = gr.Dropdown(
+                                choices=POPULAR_MODELS,
+                                value=DEFAULT_MODEL,
+                                label="Model (or type custom)",
+                                allow_custom_value=True,
+                                scale=2
+                            )
                         video_temperature = gr.Slider(
                             minimum=0.0,
                             maximum=2.0,
@@ -214,6 +269,13 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                             value="#000000",
                             label="Background Color (hex or Manim color name)"
                         )
+
+                    # Add event handler for provider change
+                    video_provider.change(
+                        fn=get_models_by_provider,
+                        inputs=[video_provider],
+                        outputs=[video_model]
+                    )
 
                     generate_video_btn = gr.Button("Generate Video", variant="primary", size="lg")
 
@@ -268,12 +330,20 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                     )
 
                     with gr.Accordion("Settings", open=True):
-                        code_model = gr.Dropdown(
-                            choices=POPULAR_MODELS,
-                            value=DEFAULT_MODEL,
-                            label="Model",
-                            allow_custom_value=True
-                        )
+                        with gr.Row():
+                            code_provider = gr.Dropdown(
+                                choices=["Popular Models"] + get_providers(),
+                                value="Popular Models",
+                                label="Provider",
+                                scale=1
+                            )
+                            code_model = gr.Dropdown(
+                                choices=POPULAR_MODELS,
+                                value=DEFAULT_MODEL,
+                                label="Model (or type custom)",
+                                allow_custom_value=True,
+                                scale=2
+                            )
                         code_temperature = gr.Slider(
                             minimum=0.0,
                             maximum=2.0,
@@ -288,6 +358,13 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                             step=100,
                             label="Max Tokens"
                         )
+
+                    # Add event handler for provider change
+                    code_provider.change(
+                        fn=get_models_by_provider,
+                        inputs=[code_provider],
+                        outputs=[code_model]
+                    )
 
                     generate_code_btn = gr.Button("Generate Code", variant="primary", size="lg")
 
@@ -336,6 +413,13 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                 | High | 1080p | 60 fps | High quality |
                 | 4K | 2160p | 60 fps | Professional |
 
+                ## Advanced Settings
+
+                ### Model Selection
+                - **Provider**: Select a specific LLM provider (OpenAI, Anthropic, Google, etc.) or use "Popular Models"
+                - **Model**: Choose from available models for the selected provider, or type a custom model name
+                - Models are fetched dynamically from the API based on your selection
+
                 ## Tips
 
                 - Be specific in your prompts for better results
@@ -343,6 +427,7 @@ with gr.Blocks(title="Manim GPT - AI Video Generator", theme=gr.themes.Soft()) a
                 - For complex animations, break them into steps
                 - Lower temperature (0.3-0.5) for more consistent code
                 - Higher temperature (0.7-1.0) for more creative variations
+                - Different models may produce different code styles - experiment to find what works best
 
                 ## Troubleshooting
 

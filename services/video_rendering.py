@@ -29,6 +29,12 @@ async def render_manim_video(
         with open(script_path, "w") as f:
             f.write(code)
 
+        # Create manim config file if background color is specified
+        if background_color:
+            config_path = Path(temp_dir) / "manim.cfg"
+            with open(config_path, "w") as f:
+                f.write(f"[CLI]\nbackground_color = {background_color}\n")
+
         # Get quality settings
         quality_settings = QUALITY_PRESETS[quality]
 
@@ -42,10 +48,6 @@ async def render_manim_video(
             "-o", f"output.{output_format}",
             "--format", output_format,
         ]
-
-        # Add background color if specified
-        if background_color:
-            cmd.extend(["--background_color", background_color])
 
         # Run manim rendering
         process = await asyncio.create_subprocess_exec(
