@@ -37,9 +37,9 @@
     })
     # used for PostScript/PDF processing
     pkgs.ghostscript
-    # pkgs.python311Packages.pip
-    # pkgs.nodejs_20
-    # pkgs.nodePackages.nodemon
+    # Node.js for React frontend
+    pkgs.nodejs_20
+    pkgs.nodePackages.npm
   ];
   # Sets environment variables in the workspace
   env = {
@@ -58,12 +58,13 @@
     previews = {
       enable = true;
       previews = {
+        # React + Tailwind frontend (default)
         web = {
-          command = ["uv" "run" "gradio_app.py"];
+          command = ["npm" "run" "dev" "--" "--host" "0.0.0.0" "--port" "$PORT"];
           manager = "web";
+          cwd = "frontend";
           env = {
             PORT = "$PORT";
-            API_URL = "http://localhost:8000";
           };
         };
       };
@@ -72,13 +73,17 @@
     workspace = {
       # Runs when a workspace is first created
       onCreate = {
-        # Example: install JS dependencies from NPM
-        # npm-install = "npm install";
+        # Install Python dependencies
+        uv-sync = "uv sync";
+        # Install React frontend dependencies
+        npm-install = "cd frontend && npm install";
         # Open editors for the following files by default, if they exist:
-        default.openFiles = [ "README.md" ];
+        default.openFiles = [ "README.md" "frontend/src/App.jsx" ];
       };
       # Runs when the workspace is (re)started
       onStart = {
+        # Install frontend dependencies if needed
+        npm-install = "cd frontend && npm install";
         # Start the FastAPI backend server
         start-api = "uv run uvicorn main:app --host 0.0.0.0 --port 8000 &";
       };
