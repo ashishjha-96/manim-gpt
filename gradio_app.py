@@ -364,6 +364,14 @@ async def render_from_session(
 
     progress(0.0, desc="🎬 Starting render...")
 
+    # Log the render request
+    print(f"\n[Gradio] Render request:")
+    print(f"  - Session ID: {session_id}")
+    print(f"  - Format: {format}")
+    print(f"  - Quality: {quality}")
+    print(f"  - Background: {background_color}")
+    print(f"  - Include Subtitles: {include_subtitles}")
+
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             # First, check session status to verify it has valid code
@@ -439,6 +447,14 @@ async def render_from_session(
 
             progress(1.0, desc="✅ Complete!")
 
+            # Check if subtitles were included
+            subtitle_indicator = ""
+            if include_subtitles:
+                if "_subtitled" in str(video_path):
+                    subtitle_indicator = "\n\n📝 **Subtitles:** ✅ Included (AI-generated narration)"
+                else:
+                    subtitle_indicator = "\n\n📝 **Subtitles:** ⚠️ Requested but may have failed (check server logs)"
+
             success_msg = f"""✅ **Video Rendered Successfully!**
 
 **File:** `{local_path}`
@@ -449,7 +465,7 @@ async def render_from_session(
 
 **Quality:** {quality}
 
-**Session:** `{session_id[:16]}...`
+**Session:** `{session_id[:16]}...`{subtitle_indicator}
 """
             return str(local_path), success_msg
 
@@ -606,9 +622,9 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                 )
 
                 render_subtitles = gr.Checkbox(
-                    value=False,
-                    label="Include Code Narration Subtitles",
-                    info="Generate and overlay narration subtitles"
+                    value=True,
+                    label="📝 Include AI-Generated Subtitles",
+                    info="Add educational narration that explains the animation (requires LLM API key)"
                 )
 
                 render_btn = gr.Button("🎬 Render Video", variant="primary", size="lg")

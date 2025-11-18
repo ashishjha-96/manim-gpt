@@ -7,9 +7,6 @@ from api import code_router, video_router, model_router, session_router
 # Load environment variables from .env file
 load_dotenv()
 
-# Enable LiteLLM debug mode
-litellm.set_verbose = True
-
 app = FastAPI(title="Manim GPT - AI-Powered Video Generation API")
 
 # Include routers

@@ -157,8 +157,11 @@ async def render_manim_video(
         # Add subtitles if requested
         final_video_path = str(video_path)
         if include_subtitles and prompt:
+            print(f"[Video Rendering] Subtitle generation requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
+            print(f"[Video Rendering] Original video path: {video_path}")
             from services.subtitle_generator import generate_and_add_subtitles
             try:
+                print(f"[Video Rendering] Starting subtitle generation...")
                 final_video_path = await generate_and_add_subtitles(
                     video_path=str(video_path),
                     code=code,
@@ -167,10 +170,15 @@ async def render_manim_video(
                     model=model,
                     subtitle_style=subtitle_style
                 )
+                print(f"[Video Rendering] Subtitle generation completed! New video path: {final_video_path}")
             except Exception as e:
                 # If subtitle generation fails, log but continue with original video
-                print(f"Warning: Subtitle generation failed: {e}")
+                print(f"[Video Rendering] ERROR: Subtitle generation failed: {e}")
+                import traceback
+                print(f"[Video Rendering] Traceback: {traceback.format_exc()}")
                 # Return original video without subtitles
+        else:
+            print(f"[Video Rendering] Subtitles NOT requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
 
         return final_video_path, temp_dir
 
