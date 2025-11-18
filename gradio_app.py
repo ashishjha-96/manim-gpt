@@ -7,7 +7,15 @@ import os
 from pathlib import Path
 import asyncio
 import json
+import logging
 from typing import Optional, Tuple
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # API base URL
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -33,7 +41,7 @@ async def fetch_providers() -> list:
                 return data.get("providers", [])
             return []
     except Exception as e:
-        print(f"Error fetching providers: {e}")
+        logger.error(f"Error fetching providers: {e}")
         return []
 
 
@@ -50,7 +58,7 @@ async def fetch_models_by_provider(provider: str) -> list:
                 return data.get("models", [])
             return []
     except Exception as e:
-        print(f"Error fetching models for {provider}: {e}")
+        logger.error(f"Error fetching models for {provider}: {e}")
         return []
 
 
@@ -365,12 +373,12 @@ async def render_from_session(
     progress(0.0, desc="🎬 Starting render...")
 
     # Log the render request
-    print(f"\n[Gradio] Render request:")
-    print(f"  - Session ID: {session_id}")
-    print(f"  - Format: {format}")
-    print(f"  - Quality: {quality}")
-    print(f"  - Background: {background_color}")
-    print(f"  - Include Subtitles: {include_subtitles}")
+    logger.info(f"[Gradio] Render request:")
+    logger.info(f"  - Session ID: {session_id}")
+    logger.info(f"  - Format: {format}")
+    logger.info(f"  - Quality: {quality}")
+    logger.info(f"  - Background: {background_color}")
+    logger.info(f"  - Include Subtitles: {include_subtitles}")
 
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -793,8 +801,8 @@ def launch_app(share: bool = False, server_name: str = "0.0.0.0", server_port: i
     if server_port is None:
         server_port = int(os.getenv("PORT", "7860"))
 
-    print(f"\nMaking sure API is running at {API_URL}...")
-    print("If the API is not running, start it with: uv run main.py\n")
+    logger.info(f"Making sure API is running at {API_URL}...")
+    logger.info("If the API is not running, start it with: uv run main.py")
 
     app.launch(
         share=share,
