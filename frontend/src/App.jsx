@@ -137,7 +137,8 @@ function App() {
         sessionId,
         renderSettings.format,
         renderSettings.quality,
-        renderSettings.background_color
+        renderSettings.background_color,
+        renderSettings.include_subtitles
       );
 
       if (result.status === 'success') {

@@ -114,11 +114,12 @@ class ManimAPI {
   /**
    * Render video from session
    */
-  async renderVideo(sessionId, format = 'mp4', quality = 'medium', backgroundColor = null) {
+  async renderVideo(sessionId, format = 'mp4', quality = 'medium', backgroundColor = null, includeSubtitles = true) {
     const body = {
       session_id: sessionId,
       format,
       quality,
+      include_subtitles: includeSubtitles,
     };
 
     if (backgroundColor) {
