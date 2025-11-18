@@ -349,6 +349,7 @@ async def render_from_session(
     format: str,
     quality: str,
     background_color: str,
+    include_subtitles: bool,
     progress=gr.Progress()
 ) -> Tuple[Optional[str], str]:
     """
@@ -393,6 +394,7 @@ async def render_from_session(
                     "format": format,
                     "quality": quality,
                     "background_color": background_color,
+                    "include_subtitles": include_subtitles,
                 }
             )
 
@@ -603,6 +605,12 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                     label="Background Color"
                 )
 
+                render_subtitles = gr.Checkbox(
+                    value=False,
+                    label="Include Code Narration Subtitles",
+                    info="Generate and overlay narration subtitles"
+                )
+
                 render_btn = gr.Button("🎬 Render Video", variant="primary", size="lg")
 
                 iter_video_output = gr.Video(label="Rendered Video")
@@ -635,7 +643,8 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                 iter_session_id,
                 render_format,
                 render_quality,
-                render_bg_color
+                render_bg_color,
+                render_subtitles
             ],
             outputs=[iter_video_output, iter_render_status]
         )
@@ -672,8 +681,10 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
            - 🎬 Once valid, you can render the video
 
         3. **Render Video** - Once you have valid code (session ID will appear), you can render it
+           - 📝 **NEW: Code Narration Subtitles** - Enable to automatically generate educational subtitles that explain the animation
 
         ### New Features:
+        - 📝 **Code Narration Subtitles** - AI-generated subtitles that narrate what's happening in the animation
         - 📊 **Real-time Iteration Logs** - See each iteration's code, errors, and status as they happen
         - ✏️ **Manual Code Editing** - Fix errors yourself after automatic refinement completes
         - 🔄 **Streaming Updates** - Watch the workflow progress in real-time
@@ -685,6 +696,7 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
         - ✅ Validated code before rendering
         - 📊 Full visibility into every iteration with detailed logs
         - 💾 Session-based workflow
+        - 📝 Educational narration for better understanding
         """)
 
     # Help Section

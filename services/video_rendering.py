@@ -13,10 +13,24 @@ async def render_manim_video(
     code: str,
     output_format: str,
     quality: str,
-    background_color: Optional[str] = None
+    background_color: Optional[str] = None,
+    include_subtitles: bool = False,
+    prompt: Optional[str] = None,
+    model: Optional[str] = "cerebras/zai-glm-4.6",
+    subtitle_style: Optional[str] = None
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
+
+    Args:
+        code: Manim Python code
+        output_format: Video format (mp4, webm, gif, mov)
+        quality: Quality preset (low, medium, high, 4k)
+        background_color: Optional background color
+        include_subtitles: Whether to generate and add subtitles
+        prompt: User's original prompt (needed for subtitle generation)
+        model: LLM model for subtitle generation
+        subtitle_style: Optional custom subtitle style
 
     Returns:
         tuple: (video_path, temp_dir)
@@ -140,7 +154,25 @@ async def render_manim_video(
                     all_files.append(os.path.join(root, file))
             raise Exception(f"Output video not found. Searched paths: {possible_paths}. Files in temp_dir: {all_files}\n\nManim STDOUT:\n{stdout_str}\n\nManim STDERR:\n{stderr_str}")
 
-        return str(video_path), temp_dir
+        # Add subtitles if requested
+        final_video_path = str(video_path)
+        if include_subtitles and prompt:
+            from services.subtitle_generator import generate_and_add_subtitles
+            try:
+                final_video_path = await generate_and_add_subtitles(
+                    video_path=str(video_path),
+                    code=code,
+                    prompt=prompt,
+                    temp_dir=temp_dir,
+                    model=model,
+                    subtitle_style=subtitle_style
+                )
+            except Exception as e:
+                # If subtitle generation fails, log but continue with original video
+                print(f"Warning: Subtitle generation failed: {e}")
+                # Return original video without subtitles
+
+        return final_video_path, temp_dir
 
     except Exception as e:
         # Clean up temp directory on error
