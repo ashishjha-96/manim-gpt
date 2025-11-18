@@ -104,7 +104,8 @@ async def validate_manim_structure(code: str) -> ValidationResult:
 
 async def validate_manim_dry_run(
     code: str,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    timeout: int = 180  # 3 minutes default timeout
 ) -> ValidationResult:
     """
     Run Manim with --dry_run flag to validate without rendering.
@@ -113,12 +114,14 @@ async def validate_manim_dry_run(
     Args:
         code: Python code to validate
         progress_callback: Optional callback function(stage, message) for progress updates
+        timeout: Maximum time in seconds to wait for validation (default: 180)
 
     Returns:
         ValidationResult with dry-run validation results
     """
     result = ValidationResult()
     temp_dir = None
+    process = None
 
     def emit_progress(stage: str, message: str):
         """Helper to emit progress if callback is provided."""
@@ -201,11 +204,21 @@ async def validate_manim_dry_run(
                     # else:
                     #     emit_progress(stream_name, decoded_line)
 
-        # Read both streams concurrently
-        await asyncio.gather(
-            read_stream(process.stdout, is_stderr=False),
-            read_stream(process.stderr, is_stderr=True)
-        )
+        # Read both streams concurrently with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    read_stream(process.stdout, is_stderr=False),
+                    read_stream(process.stderr, is_stderr=True)
+                ),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Validation process exceeded timeout of {timeout}s")
+            result.is_valid = False
+            result.errors.append(f"Validation timeout after {timeout} seconds")
+            emit_progress("timeout", f"Validation timeout after {timeout} seconds")
+            return result
 
         # Wait for process to complete
         await process.wait()
@@ -231,6 +244,14 @@ async def validate_manim_dry_run(
             result.is_valid = True
             emit_progress("completed", "Manim validation successful")
 
+    except asyncio.CancelledError:
+        # Handle cancellation gracefully
+        logger.warning("Validation task was cancelled")
+        result.is_valid = False
+        result.errors.append("Validation was cancelled")
+        emit_progress("cancelled", "Validation was cancelled")
+        raise  # Re-raise to allow proper cleanup
+
     except Exception as e:
         result.is_valid = False
         result.errors.append(f"Validation error: {str(e)}")
@@ -238,6 +259,22 @@ async def validate_manim_dry_run(
         emit_progress("error", f"Validation error: {str(e)}")
 
     finally:
+        # Ensure subprocess is terminated
+        if process and process.returncode is None:
+            try:
+                logger.info("Terminating validation subprocess...")
+                process.terminate()
+                try:
+                    # Wait briefly for graceful termination
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # Force kill if it doesn't terminate gracefully
+                    logger.warning("Force killing validation subprocess...")
+                    process.kill()
+                    await process.wait()
+            except Exception as cleanup_error:
+                logger.error(f"Error during subprocess cleanup: {cleanup_error}")
+
         # Clean up temp directory
         if temp_dir:
             import shutil

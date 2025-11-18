@@ -138,7 +138,8 @@ async def add_subtitles_to_video(
     srt_path: str,
     output_path: str,
     subtitle_style: Optional[str] = None,
-    font_size: int = 24
+    font_size: int = 24,
+    timeout: int = 300  # 5 minutes default timeout
 ) -> None:
     """
     Add subtitles to video using FFmpeg.
@@ -149,6 +150,7 @@ async def add_subtitles_to_video(
         output_path: Path for output video with subtitles
         subtitle_style: Optional custom subtitle style (ASS format). If provided, font_size is ignored.
         font_size: Font size for subtitles (default: 24). Only used if subtitle_style is None.
+        timeout: Maximum time in seconds to wait for FFmpeg (default: 300)
 
     Raises:
         RuntimeError: If ffmpeg is not available in the system
@@ -185,11 +187,42 @@ async def add_subtitles_to_video(
         stderr=asyncio.subprocess.PIPE
     )
 
-    stdout, stderr = await process.communicate()
+    try:
+        # Use communicate with timeout
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=timeout
+        )
 
-    if process.returncode != 0:
-        stderr_str = stderr.decode() if stderr else ""
-        raise Exception(f"FFmpeg subtitle addition failed (code {process.returncode}):\n{stderr_str}")
+        if process.returncode != 0:
+            stderr_str = stderr.decode() if stderr else ""
+            raise Exception(f"FFmpeg subtitle addition failed (code {process.returncode}):\n{stderr_str}")
+
+    except asyncio.TimeoutError:
+        # Kill the process if it times out
+        try:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+        except Exception as cleanup_error:
+            logger.error(f"Error during FFmpeg cleanup: {cleanup_error}")
+        raise Exception(f"FFmpeg subtitle addition timeout after {timeout} seconds")
+
+    except asyncio.CancelledError:
+        # Handle cancellation gracefully
+        try:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+        except Exception as cleanup_error:
+            logger.error(f"Error during FFmpeg cleanup: {cleanup_error}")
+        raise
 
 
 async def generate_and_add_subtitles(

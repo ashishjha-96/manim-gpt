@@ -23,7 +23,8 @@ async def render_manim_video(
     model: Optional[str] = "cerebras/zai-glm-4.6",
     subtitle_style: Optional[str] = None,
     subtitle_font_size: int = 24,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    timeout: int = 600  # 10 minutes default timeout
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
@@ -39,6 +40,7 @@ async def render_manim_video(
         subtitle_style: Optional custom subtitle style (ASS format). If provided, subtitle_font_size is ignored.
         subtitle_font_size: Font size for subtitles (default: 24)
         progress_callback: Optional callback function(status, message) for progress updates
+        timeout: Maximum time in seconds to wait for rendering (default: 600)
 
     Returns:
         tuple: (video_path, temp_dir)
@@ -50,6 +52,7 @@ async def render_manim_video(
 
     # Create temporary directory for the Manim project
     temp_dir = tempfile.mkdtemp(prefix="manim_")
+    process = None
 
     try:
         emit_progress("preparing", "Setting up rendering environment")
@@ -136,11 +139,18 @@ async def render_manim_video(
                 if decoded_line:
                     logger.info(decoded_line)
 
-        # Read both streams concurrently
-        await asyncio.gather(
-            read_stream(process.stdout, is_stderr=False),
-            read_stream(process.stderr, is_stderr=True)
-        )
+        # Read both streams concurrently with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    read_stream(process.stdout, is_stderr=False),
+                    read_stream(process.stderr, is_stderr=True)
+                ),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Rendering process exceeded timeout of {timeout}s")
+            raise Exception(f"Video rendering timeout after {timeout} seconds")
 
         # Wait for process to complete
         await process.wait()
@@ -242,7 +252,29 @@ async def render_manim_video(
         emit_progress("completed", "Video rendering completed successfully")
         return final_video_path, temp_dir
 
+    except asyncio.CancelledError:
+        # Handle cancellation gracefully
+        logger.warning("Rendering task was cancelled")
+        raise  # Re-raise to allow proper cleanup
+
     except Exception as e:
         # Clean up temp directory on error
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise e
+
+    finally:
+        # Ensure subprocess is terminated
+        if process and process.returncode is None:
+            try:
+                logger.info("Terminating rendering subprocess...")
+                process.terminate()
+                try:
+                    # Wait briefly for graceful termination
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # Force kill if it doesn't terminate gracefully
+                    logger.warning("Force killing rendering subprocess...")
+                    process.kill()
+                    await process.wait()
+            except Exception as cleanup_error:
+                logger.error(f"Error during subprocess cleanup: {cleanup_error}")
