@@ -8,6 +8,10 @@ from pathlib import Path
 import asyncio
 import json
 from typing import Optional, Tuple
+from utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # API base URL
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -33,7 +37,11 @@ async def fetch_providers() -> list:
                 return data.get("providers", [])
             return []
     except Exception as e:
-        print(f"Error fetching providers: {e}")
+        logger.error(
+            "Error fetching providers",
+            extra={'error': str(e)},
+            exc_info=True
+        )
         return []
 
 
@@ -50,7 +58,11 @@ async def fetch_models_by_provider(provider: str) -> list:
                 return data.get("models", [])
             return []
     except Exception as e:
-        print(f"Error fetching models for {provider}: {e}")
+        logger.error(
+            "Error fetching models for provider",
+            extra={'provider': provider, 'error': str(e)},
+            exc_info=True
+        )
         return []
 
 
@@ -765,8 +777,15 @@ def launch_app(share: bool = False, server_name: str = "0.0.0.0", server_port: i
     if server_port is None:
         server_port = int(os.getenv("PORT", "7860"))
 
-    print(f"\nMaking sure API is running at {API_URL}...")
-    print("If the API is not running, start it with: uv run main.py\n")
+    logger.info(
+        "Launching Gradio UI",
+        extra={
+            'api_url': API_URL,
+            'server_port': server_port,
+            'share': share
+        }
+    )
+    logger.info("Make sure the API is running. Start it with: uv run main.py")
 
     app.launch(
         share=share,

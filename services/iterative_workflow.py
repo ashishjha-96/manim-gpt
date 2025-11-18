@@ -12,6 +12,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from litellm import acompletion
 from services.code_validator import validate_code
 from models.session import IterationStatus, CodeIteration
+from utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class WorkflowState(TypedDict):
@@ -37,7 +41,15 @@ async def generate_code_node(state: WorkflowState) -> dict:
     For first iteration, uses the original prompt.
     For refinements, includes error feedback.
     """
-    print(f"[Generate Node] Iteration {state['current_iteration'] + 1}")
+    logger.info(
+        "Starting code generation",
+        extra={
+            'node': 'Generate',
+            'session_id': state['session_id'],
+            'iteration': state['current_iteration'] + 1,
+            'max_iterations': state['max_iterations']
+        }
+    )
 
     # Build system prompt
     system_prompt = """You are an expert Manim (Mathematical Animation Engine) programmer.
@@ -139,7 +151,16 @@ Please generate corrected Manim code that fixes these issues."""
 
     generated_code = '\n'.join(cleaned_lines).strip()
 
-    print(f"[Generate Node] Generated {len(generated_code)} characters of code")
+    logger.info(
+        "Code generation completed",
+        extra={
+            'node': 'Generate',
+            'session_id': state['session_id'],
+            'iteration': state['current_iteration'] + 1,
+            'code_length': len(generated_code),
+            'model': state['model']
+        }
+    )
 
     return {
         "generated_code": generated_code,
@@ -153,7 +174,14 @@ async def validate_code_node(state: WorkflowState) -> dict:
     Node that validates the generated Manim code.
     Runs syntax checks and Manim dry-run.
     """
-    print(f"[Validate Node] Validating code for iteration {state['current_iteration'] + 1}")
+    logger.info(
+        "Starting code validation",
+        extra={
+            'node': 'Validate',
+            'session_id': state['session_id'],
+            'iteration': state['current_iteration'] + 1
+        }
+    )
 
     code = state["generated_code"]
     validation_result = await validate_code(code, dry_run=True)
@@ -171,9 +199,27 @@ async def validate_code_node(state: WorkflowState) -> dict:
     iterations_history = state["iterations_history"].copy()
     iterations_history.append(iteration)
 
-    print(f"[Validate Node] Validation result: {validation_result['is_valid']}")
-    if not validation_result["is_valid"]:
-        print(f"[Validate Node] Errors: {validation_result['errors']}")
+    if validation_result["is_valid"]:
+        logger.info(
+            "Code validation successful",
+            extra={
+                'node': 'Validate',
+                'session_id': state['session_id'],
+                'iteration': state['current_iteration'] + 1,
+                'valid': True
+            }
+        )
+    else:
+        logger.warning(
+            "Code validation failed",
+            extra={
+                'node': 'Validate',
+                'session_id': state['session_id'],
+                'iteration': state['current_iteration'] + 1,
+                'valid': False,
+                'errors': validation_result.get('errors', [])
+            }
+        )
 
     return {
         "validation_result": validation_result,
@@ -194,16 +240,49 @@ def decide_next_step(state: WorkflowState) -> str:
     current_iter = state["current_iteration"]
     max_iter = state["max_iterations"]
 
-    print(f"[Decide Node] Iteration {current_iter}/{max_iter}, Valid: {validation['is_valid']}")
+    logger.info(
+        "Making routing decision",
+        extra={
+            'node': 'Decide',
+            'session_id': state['session_id'],
+            'iteration': current_iter,
+            'max_iterations': max_iter,
+            'valid': validation['is_valid']
+        }
+    )
 
     if validation["is_valid"]:
-        print("[Decide Node] Code is valid! Going to complete.")
+        logger.info(
+            "Routing to complete - code is valid",
+            extra={
+                'node': 'Decide',
+                'session_id': state['session_id'],
+                'status': 'complete'
+            }
+        )
         return "complete"
     elif current_iter >= max_iter:
-        print("[Decide Node] Max iterations reached. Stopping.")
+        logger.warning(
+            "Routing to max_iterations - limit reached",
+            extra={
+                'node': 'Decide',
+                'session_id': state['session_id'],
+                'status': 'max_iterations',
+                'iteration': current_iter,
+                'max_iterations': max_iter
+            }
+        )
         return "max_iterations"
     else:
-        print("[Decide Node] Code has errors. Going to refine.")
+        logger.info(
+            "Routing to refine - code has errors",
+            extra={
+                'node': 'Decide',
+                'session_id': state['session_id'],
+                'status': 'refine',
+                'iteration': current_iter
+            }
+        )
         return "refine"
 
 
@@ -211,7 +290,15 @@ async def complete_node(state: WorkflowState) -> dict:
     """
     Node for successful completion.
     """
-    print("[Complete Node] Code generation successful!")
+    logger.info(
+        "Code generation completed successfully",
+        extra={
+            'node': 'Complete',
+            'session_id': state['session_id'],
+            'status': 'SUCCESS',
+            'iteration': state['current_iteration']
+        }
+    )
     return {
         "status": IterationStatus.SUCCESS,
         "error_message": None
@@ -222,7 +309,16 @@ async def max_iterations_node(state: WorkflowState) -> dict:
     """
     Node for when max iterations is reached without success.
     """
-    print("[Max Iterations Node] Maximum iterations reached without valid code.")
+    logger.warning(
+        "Maximum iterations reached without valid code",
+        extra={
+            'node': 'MaxIterations',
+            'session_id': state['session_id'],
+            'status': 'MAX_ITERATIONS_REACHED',
+            'iteration': state['current_iteration'],
+            'max_iterations': state['max_iterations']
+        }
+    )
     return {
         "status": IterationStatus.MAX_ITERATIONS_REACHED,
         "error_message": "Maximum iterations reached. Code still has validation errors."
@@ -234,7 +330,15 @@ async def refine_node(state: WorkflowState) -> dict:
     Node that prepares for refinement by updating status.
     The actual refinement happens in the next generate_code_node call.
     """
-    print("[Refine Node] Preparing for refinement...")
+    logger.info(
+        "Preparing for code refinement",
+        extra={
+            'node': 'Refine',
+            'session_id': state['session_id'],
+            'status': 'REFINING',
+            'iteration': state['current_iteration']
+        }
+    )
     return {
         "status": IterationStatus.REFINING
     }
@@ -311,8 +415,16 @@ async def run_iterative_generation(
     Returns:
         Final workflow state with results
     """
-    print(f"\n[Workflow] Starting iterative generation for session {session_id}")
-    print(f"[Workflow] Model: {model}, Max iterations: {max_iterations}")
+    logger.info(
+        "Starting iterative workflow",
+        extra={
+            'session_id': session_id,
+            'model': model,
+            'max_iterations': max_iterations,
+            'temperature': temperature,
+            'max_tokens': max_tokens
+        }
+    )
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -361,8 +473,15 @@ async def run_iterative_generation(
         # Execute workflow normally without streaming
         final_state = await workflow.ainvoke(initial_state)
 
-    print(f"\n[Workflow] Completed with status: {final_state['status']}")
-    print(f"[Workflow] Total iterations: {final_state['current_iteration']}")
+    logger.info(
+        "Workflow completed",
+        extra={
+            'session_id': session_id,
+            'status': str(final_state['status']),
+            'iteration': final_state['current_iteration'],
+            'max_iterations': max_iterations
+        }
+    )
 
     return final_state
 
@@ -390,8 +509,16 @@ async def run_iterative_generation_streaming(
     Yields:
         Progress updates as dictionaries
     """
-    print(f"\n[Workflow Streaming] Starting iterative generation for session {session_id}")
-    print(f"[Workflow Streaming] Model: {model}, Max iterations: {max_iterations}")
+    logger.info(
+        "Starting streaming workflow",
+        extra={
+            'session_id': session_id,
+            'model': model,
+            'max_iterations': max_iterations,
+            'temperature': temperature,
+            'max_tokens': max_tokens
+        }
+    )
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -487,5 +614,12 @@ async def run_iterative_generation_streaming(
             "message": "Workflow completed successfully!"
         }
 
-    print(f"\n[Workflow Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
-    print(f"[Workflow Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")
+    logger.info(
+        "Streaming workflow completed",
+        extra={
+            'session_id': session_id,
+            'status': str(final_state.get('status')) if final_state else 'unknown',
+            'iteration': final_state.get('current_iteration', 0) if final_state else 0,
+            'max_iterations': max_iterations
+        }
+    )

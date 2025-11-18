@@ -169,6 +169,55 @@ export OPENAI_API_KEY="your-api-key"
 export ANTHROPIC_API_KEY="your-api-key"
 ```
 
+### Logging Configuration
+
+The application uses structured logging for better observability and debugging. You can configure logging behavior using environment variables:
+
+```bash
+# Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_LEVEL=INFO
+
+# Log format ("human" for development, "json" for production)
+LOG_FORMAT=human
+
+# Optional: Write logs to a file
+LOG_FILE=./logs/manim-gpt.log
+
+# LiteLLM log level (reduce noise from the LLM library)
+LITELLM_LOG_LEVEL=WARNING
+```
+
+**Log Formats:**
+
+- **Human-readable format** (default, `LOG_FORMAT=human`):
+  ```
+  14:23:45 [INFO] [api.session_routes] [Session: 3d852e07] Session created for code generation
+  14:23:46 [INFO] [services.iterative_workflow] [Session: 3d852e07] [Generate] [Iter: 1] Starting code generation
+  ```
+
+- **JSON format** (`LOG_FORMAT=json`):
+  ```json
+  {"timestamp": "2025-11-18T14:23:45Z", "level": "INFO", "logger": "api.session_routes", "message": "Session created for code generation", "session_id": "3d852e07-6864-438f-bde2-499c692cb6ac", "model": "cerebras/zai-glm-4.6"}
+  ```
+
+**Benefits of structured logging:**
+- Easy to parse and analyze logs programmatically
+- Better integration with log aggregation tools (Datadog, Splunk, etc.)
+- Contextual information (session IDs, iteration numbers, etc.) in every log
+- Filterable by log level, component, or session
+
+**Example: Using JSON logs with jq for filtering:**
+```bash
+# View all logs for a specific session
+cat logs/manim-gpt.log | jq 'select(.session_id == "3d852e07")'
+
+# View only error logs
+cat logs/manim-gpt.log | jq 'select(.level == "ERROR")'
+
+# View logs from a specific node
+cat logs/manim-gpt.log | jq 'select(.node == "Generate")'
+```
+
 ## Using the Gradio UI
 
 The Gradio UI provides an easy-to-use web interface for generating Manim videos with an iterative refinement workflow.

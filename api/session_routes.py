@@ -22,6 +22,10 @@ from services.session_manager import session_manager
 from services.iterative_workflow import run_iterative_generation, run_iterative_generation_streaming
 from services.video_rendering import render_manim_video
 from services.code_validator import validate_code
+from utils.logging import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -52,7 +56,15 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             max_iterations=request.max_iterations
         )
 
-        print(f"\n[API] Created session {session.session_id}")
+        logger.info(
+            "Session created for code generation",
+            extra={
+                'session_id': session.session_id,
+                'model': request.model,
+                'max_iterations': request.max_iterations,
+                'temperature': request.temperature
+            }
+        )
 
         # Run iterative workflow
         workflow_state = await run_iterative_generation(
@@ -303,7 +315,16 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
                 max_iterations=request.max_iterations
             )
 
-            print(f"\n[API Streaming] Created session {session.session_id}")
+            logger.info(
+                "Session created for streaming code generation",
+                extra={
+                    'session_id': session.session_id,
+                    'model': request.model,
+                    'max_iterations': request.max_iterations,
+                    'temperature': request.temperature,
+                    'streaming': True
+                }
+            )
 
             # Stream workflow progress
             async for progress_data in run_iterative_generation_streaming(
