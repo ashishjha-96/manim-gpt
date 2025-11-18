@@ -121,12 +121,14 @@ The Nix environment automatically:
 #### Google IDX (Project IDX) Setup
 
 This project is pre-configured for Google IDX. When you open this project in IDX:
-1. The Nix environment will automatically initialize
-2. The FastAPI backend will auto-start on port 8000
-3. The Gradio UI preview will be available
-4. All dependencies will be installed automatically
+1. The Nix environment will automatically initialize with Node.js and Python
+2. Python dependencies will be installed automatically (uv sync)
+3. React frontend dependencies will be installed automatically (npm install)
+4. The FastAPI backend will auto-start on port 8000
+5. The React + Tailwind UI will be available in the default web preview
+6. The Gradio UI is also available as an alternative preview
 
-Simply open the project in IDX and start using it!
+Simply open the project in IDX and start using it! The React frontend will be the default preview.
 
 ### Option 2: Manual Installation
 
