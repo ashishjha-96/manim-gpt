@@ -1,18 +1,134 @@
 # Manim GPT - AI-Powered Video Generation API
 
-A FastAPI-based service that generates animated Manim videos from text prompts using LLM-powered code generation.
+A FastAPI-based service that generates animated Manim videos from text prompts using LLM-powered code generation with iterative refinement.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Installation](#installation)
+  - [Using Nix (Recommended)](#option-1-using-nix-recommended)
+  - [Manual Installation](#option-2-manual-installation)
+- [Environment Setup](#environment-setup)
+- [Using the Gradio UI](#using-the-gradio-ui)
+- [API Documentation](#api-documentation)
+- [API Usage Examples](#api-usage-examples)
+- [Supported Models](#supported-models)
+- [System Requirements](#system-requirements)
+- [Troubleshooting](#troubleshooting)
+
+## Quick Start
+
+**Using Nix (Easiest)**:
+```bash
+# 1. Enter Nix development shell
+nix develop --impure -f .idx/dev.nix
+
+# 2. Install Python dependencies
+uv sync
+
+# 3. Set up API keys
+cp .env.example .env
+# Edit .env and add your API keys (e.g., OPENAI_API_KEY)
+
+# 4. Start the backend (Terminal 1)
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 5. Start the UI (Terminal 2, in Nix shell)
+uv run gradio_app.py
+
+# 6. Open http://localhost:7860 in your browser
+```
+
+**Using Google IDX**: Just open the project - everything auto-starts!
 
 ## Features
 
 - **AI-Powered Code Generation**: Generate Manim animation code from natural language prompts
+- **Iterative Code Refinement**: Automatic error detection and correction with LangGraph workflow
+- **Real-time Streaming Updates**: Watch the generation process with live iteration logs
+- **Manual Code Editing**: Fix errors yourself with built-in validation support
+- **Session-based Workflow**: Maintain state across generation, editing, and rendering
 - **Multi-Format Support**: Export videos in MP4, WebM, GIF, and MOV formats
 - **Quality Presets**: Choose from low (480p), medium (720p), high (1080p), or 4K resolution
 - **Customizable Rendering**: Control background color, frame rate, and video quality
 - **Multiple LLM Models**: Supports 100+ models through LiteLLM integration
 - **Async API**: Non-blocking video generation for better performance
-- **Clean API Design**: RESTful endpoints with Pydantic models
+- **Modern Web UI**: Beautiful Gradio interface with real-time progress tracking
+- **Clean API Design**: RESTful endpoints with comprehensive documentation
 
 ## Installation
+
+### Option 1: Using Nix (Recommended)
+
+The easiest way to get started is using Nix, which provides all system dependencies including FFmpeg, LaTeX, and graphics libraries.
+
+#### Setting up the Nix Environment
+
+1. **Install Nix** (if not already installed):
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+   ```
+
+2. **Clone the repository**:
+   ```bash
+   git clone <your-repo-url>
+   cd manim-gpt
+   ```
+
+3. **Enter the Nix development shell**:
+   ```bash
+   nix develop --impure -f .idx/dev.nix
+   ```
+
+   This will automatically install:
+   - Python 3.14
+   - UV package manager
+   - FFmpeg for video rendering
+   - LaTeX (TeX Live) for mathematical text rendering
+   - Graphics libraries (Cairo, Pango, Fontconfig, Freetype)
+   - All required development tools
+
+4. **Install Python dependencies**:
+   ```bash
+   uv sync
+   ```
+
+5. **Set up environment variables**:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your API keys
+   ```
+
+#### Running in Nix Environment
+
+Once in the Nix shell, you can run both the API and UI:
+
+```bash
+# Terminal 1: Start the FastAPI backend
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2: Start the Gradio UI (in a new terminal, also in Nix shell)
+nix develop --impure -f .idx/dev.nix
+uv run gradio_app.py
+```
+
+The Nix environment automatically:
+- Sets up all required build flags for Cairo and graphics libraries
+- Configures LaTeX packages needed for Manim
+- Ensures consistent dependencies across different systems
+
+#### Google IDX (Project IDX) Setup
+
+This project is pre-configured for Google IDX. When you open this project in IDX:
+1. The Nix environment will automatically initialize
+2. The FastAPI backend will auto-start on port 8000
+3. The Gradio UI preview will be available
+4. All dependencies will be installed automatically
+
+Simply open the project in IDX and start using it!
+
+### Option 2: Manual Installation
 
 ```bash
 # Install dependencies using uv
@@ -22,9 +138,11 @@ uv sync
 pip install -e .
 ```
 
+**Note**: Manual installation requires you to install system dependencies separately (see [System Requirements](#system-requirements) below).
+
 ## Environment Setup
 
-### Using .env file (Recommended)
+### API Keys Configuration
 
 1. Copy the example environment file:
 ```bash
@@ -44,47 +162,71 @@ ANTHROPIC_API_KEY=your-api-key
 
 The application will automatically load environment variables from the `.env` file.
 
-### Using environment variables directly
-
-Alternatively, you can set environment variables in your shell:
+Alternatively, you can set environment variables directly in your shell:
 
 ```bash
-# For OpenAI
 export OPENAI_API_KEY="your-api-key"
-
-# For Anthropic
 export ANTHROPIC_API_KEY="your-api-key"
-
-# For other providers, see LiteLLM documentation
 ```
 
-## Running the Application
+## Using the Gradio UI
 
-### Option 1: Gradio UI (Recommended for beginners)
+The Gradio UI provides an easy-to-use web interface for generating Manim videos with an iterative refinement workflow.
 
-The easiest way to use Manim GPT is through the Gradio web interface:
+### Starting the Application
 
+**If using Nix** (recommended):
 ```bash
-# First, start the FastAPI backend server in one terminal
-uv run main.py
+# Terminal 1: Enter Nix shell and start the API
+nix develop --impure -f .idx/dev.nix
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
 
-# Then, in another terminal, start the Gradio UI
+# Terminal 2: Enter Nix shell and start the Gradio UI
+nix develop --impure -f .idx/dev.nix
 uv run gradio_app.py
 ```
 
-The Gradio UI will be available at `http://localhost:7860`
-
-### Option 2: FastAPI Server (For API access)
-
+**If using manual installation**:
 ```bash
-# Run with Python
+# Terminal 1: Start the API
 uv run main.py
 
-# Or with uvicorn directly
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Terminal 2: Start the Gradio UI
+uv run gradio_app.py
 ```
 
-The API will be available at `http://localhost:8000`
+Then open `http://localhost:7860` in your browser.
+
+### Workflow
+
+1. **Enter a prompt** describing your animation (e.g., "Create an animation showing the Pythagorean theorem")
+2. **Configure settings**: Choose your LLM model, temperature, and max iterations
+3. **Click "🚀 Generate with Streaming"** to start the iterative workflow
+4. **Watch real-time progress** and iteration logs as the code is generated and refined
+5. **Review and edit** the generated code if needed
+6. **Click "🎬 Render Video"** once you have valid code to create your animation
+
+### UI Features
+
+- **Iterative Code Refinement**: Automatic error detection and fixing with up to 10 iterations
+- **Real-time Streaming**: Watch each iteration's progress, errors, and fixes in real-time
+- **Manual Code Editing**: Edit code directly in the UI and validate before rendering
+- **Session Management**: Maintain state across generation, editing, and rendering
+- **Multiple Output Formats**: MP4, WebM, GIF, or MOV
+- **Quality Presets**: Low (480p), medium (720p), high (1080p), or 4K resolution
+- **API Health Monitoring**: Check backend status at any time
+- **Example Prompts**: Quick-start templates for common animations
+- **Advanced Settings**: Full control over LLM model, temperature, and token limits
+
+### Example Prompts
+
+Try these prompts to get started:
+- "Create an animation showing the Pythagorean theorem with a right triangle"
+- "Animate a sine wave transforming into a cosine wave"
+- "Show a bouncing ball with physics"
+- "Visualize the area under a curve using Riemann sums"
+- "Show matrix multiplication step by step"
+- "Animate bubble sort with an array of numbers"
 
 ## API Documentation
 
@@ -193,45 +335,9 @@ Root endpoint - returns API status and available endpoints.
 
 Health check endpoint.
 
-## Using the Gradio UI
+## API Usage Examples
 
-The Gradio UI provides an easy-to-use web interface for generating Manim videos:
-
-1. **Start the servers**:
-   ```bash
-   # Terminal 1: Start the API
-   uv run main.py
-
-   # Terminal 2: Start the Gradio UI
-   uv run gradio_app.py
-   ```
-
-2. **Open the UI**: Navigate to `http://localhost:7860` in your browser
-
-3. **Generate videos**:
-   - Enter a prompt describing your animation
-   - Select format (MP4, WebM, GIF, or MOV)
-   - Choose quality preset (low, medium, high, or 4k)
-   - Click "Generate Video"
-   - View the generated video and code
-
-4. **Features**:
-   - Video generation with preview
-   - Code-only generation (faster)
-   - Example prompts to get started
-   - API health monitoring
-   - Advanced settings (model selection, temperature, tokens)
-
-## Example Usage
-
-### Using Gradio UI
-
-Simply enter prompts like:
-- "Create an animation showing the Pythagorean theorem with a right triangle"
-- "Animate a sine wave transforming into a cosine wave"
-- "Show a bouncing ball with physics"
-
-### Generate a Manim Video (API)
+### Generate a Manim Video
 
 #### Using curl
 
@@ -297,18 +403,6 @@ response = requests.post(
 
 print(response.json()["generated_code"])
 ```
-
-### Example Prompts
-
-Here are some example prompts you can try:
-
-- **Mathematics**: "Animate the proof of the Pythagorean theorem"
-- **Physics**: "Show a pendulum swinging with decreasing amplitude"
-- **Graphs**: "Create a bar chart that animates upward"
-- **Geometry**: "Demonstrate how to construct a circle from its center"
-- **Calculus**: "Visualize the area under a curve using Riemann sums"
-- **Linear Algebra**: "Show matrix multiplication step by step"
-- **Algorithms**: "Animate bubble sort with an array of numbers"
 
 ## Supported Models
 
