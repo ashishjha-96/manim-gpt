@@ -41,6 +41,14 @@ async def render_manim_video(
 </fontconfig>
 """)
 
+        # Create media directories that Manim expects
+        media_dir = Path(temp_dir) / "media"
+        media_dir.mkdir(exist_ok=True)
+        (media_dir / "Tex").mkdir(exist_ok=True)
+        (media_dir / "images").mkdir(exist_ok=True)
+        (media_dir / "text").mkdir(exist_ok=True)
+        (media_dir / "videos").mkdir(exist_ok=True)
+
         # Write the generated code to a Python file
         script_path = Path(temp_dir) / "scene.py"
         with open(script_path, "w") as f:

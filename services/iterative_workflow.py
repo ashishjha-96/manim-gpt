@@ -1,9 +1,10 @@
 """
 LangGraph workflow for iterative Manim code generation and refinement.
 """
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, Callable, Optional, Any
 from datetime import datetime
 import operator
+import asyncio
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -292,7 +293,8 @@ async def run_iterative_generation(
     model: str,
     temperature: float,
     max_tokens: int,
-    max_iterations: int = 5
+    max_iterations: int = 5,
+    progress_callback: Optional[Callable[[dict], None]] = None
 ) -> WorkflowState:
     """
     Run the iterative code generation workflow.
@@ -304,6 +306,7 @@ async def run_iterative_generation(
         temperature: Generation temperature
         max_tokens: Maximum tokens for generation
         max_iterations: Maximum refinement iterations
+        progress_callback: Optional callback for progress updates
 
     Returns:
         Final workflow state with results
@@ -331,10 +334,158 @@ async def run_iterative_generation(
     # Create and run workflow
     workflow = create_workflow()
 
-    # Execute workflow
-    final_state = await workflow.ainvoke(initial_state)
+    # Execute workflow with streaming if callback provided
+    if progress_callback:
+        # Stream events from workflow
+        async for event in workflow.astream(initial_state):
+            # Extract node name and state from event
+            if event:
+                for node_name, node_state in event.items():
+                    # Send progress update
+                    progress_data = {
+                        "session_id": session_id,
+                        "node": node_name,
+                        "status": node_state.get("status", IterationStatus.GENERATING),
+                        "current_iteration": node_state.get("current_iteration", 0),
+                        "max_iterations": max_iterations,
+                        "generated_code": node_state.get("generated_code"),
+                        "validation_result": node_state.get("validation_result"),
+                        "iterations_history": node_state.get("iterations_history", []),
+                        "error_message": node_state.get("error_message")
+                    }
+                    await progress_callback(progress_data)
+
+        # Get final state
+        final_state = await workflow.ainvoke(initial_state)
+    else:
+        # Execute workflow normally without streaming
+        final_state = await workflow.ainvoke(initial_state)
 
     print(f"\n[Workflow] Completed with status: {final_state['status']}")
     print(f"[Workflow] Total iterations: {final_state['current_iteration']}")
 
     return final_state
+
+
+async def run_iterative_generation_streaming(
+    session_id: str,
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_iterations: int = 5
+):
+    """
+    Run the iterative code generation workflow with streaming.
+    Yields progress updates as the workflow executes.
+
+    Args:
+        session_id: Unique session identifier
+        prompt: User's prompt for the animation
+        model: LLM model to use
+        temperature: Generation temperature
+        max_tokens: Maximum tokens for generation
+        max_iterations: Maximum refinement iterations
+
+    Yields:
+        Progress updates as dictionaries
+    """
+    print(f"\n[Workflow Streaming] Starting iterative generation for session {session_id}")
+    print(f"[Workflow Streaming] Model: {model}, Max iterations: {max_iterations}")
+
+    # Initialize state
+    initial_state: WorkflowState = {
+        "session_id": session_id,
+        "prompt": prompt,
+        "model": model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "max_iterations": max_iterations,
+        "current_iteration": 0,
+        "messages": [],
+        "generated_code": None,
+        "validation_result": None,
+        "iterations_history": [],
+        "status": IterationStatus.GENERATING,
+        "error_message": None
+    }
+
+    # Create workflow
+    workflow = create_workflow()
+
+    # Yield initial status
+    yield {
+        "session_id": session_id,
+        "event": "start",
+        "status": IterationStatus.GENERATING,
+        "current_iteration": 0,
+        "max_iterations": max_iterations,
+        "message": "Starting code generation workflow..."
+    }
+
+    # Stream workflow execution
+    final_state = None
+    async for event in workflow.astream(initial_state):
+        if event:
+            for node_name, node_state in event.items():
+                # Extract iteration info if available
+                iterations_history = node_state.get("iterations_history", [])
+                current_iteration = node_state.get("current_iteration", 0)
+
+                # Send progress update with full iteration details
+                progress_data = {
+                    "session_id": session_id,
+                    "event": "progress",
+                    "node": node_name,
+                    "status": node_state.get("status", IterationStatus.GENERATING),
+                    "current_iteration": current_iteration,
+                    "max_iterations": max_iterations,
+                    "generated_code": node_state.get("generated_code"),
+                    "validation_result": node_state.get("validation_result"),
+                    "iterations_history": [
+                        {
+                            "iteration_number": iter.iteration_number,
+                            "generated_code": iter.generated_code,
+                            "validation_result": iter.validation_result,
+                            "timestamp": iter.timestamp.isoformat(),
+                            "status": iter.status
+                        }
+                        for iter in iterations_history
+                    ],
+                    "error_message": node_state.get("error_message"),
+                    "message": f"Node '{node_name}' completed for iteration {current_iteration}"
+                }
+                yield progress_data
+
+                # Keep track of the most complete state (preserve data from validate node)
+                if final_state is None:
+                    final_state = node_state
+                else:
+                    # Merge states, preserving non-None values
+                    final_state = {**final_state, **{k: v for k, v in node_state.items() if v is not None}}
+
+    # Yield final completion event
+    if final_state:
+        yield {
+            "session_id": session_id,
+            "event": "complete",
+            "status": final_state.get("status", IterationStatus.SUCCESS),
+            "current_iteration": final_state.get("current_iteration", 0),
+            "max_iterations": max_iterations,
+            "generated_code": final_state.get("generated_code"),
+            "validation_result": final_state.get("validation_result"),
+            "iterations_history": [
+                {
+                    "iteration_number": iter.iteration_number,
+                    "generated_code": iter.generated_code,
+                    "validation_result": iter.validation_result,
+                    "timestamp": iter.timestamp.isoformat(),
+                    "status": iter.status
+                }
+                for iter in final_state.get("iterations_history", [])
+            ],
+            "message": "Workflow completed successfully!"
+        }
+
+    print(f"\n[Workflow Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
+    print(f"[Workflow Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")

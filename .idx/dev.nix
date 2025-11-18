@@ -30,6 +30,13 @@
     pkgs.xorg.xcbutil
     pkgs.xorg.libX11
     pkgs.xorg.xorgproto
+    # LaTeX for Manim text rendering
+    # Full TeX Live distribution with all packages Manim needs
+    (pkgs.texlive.combine {
+      inherit (pkgs.texlive) scheme-basic standalone preview doublestroke relsize fundus-calligra wasysym physics dvisvgm rsfs wasy cm-super amsmath amsfonts;
+    })
+    # used for PostScript/PDF processing
+    pkgs.ghostscript
     # pkgs.python311Packages.pip
     # pkgs.nodejs_20
     # pkgs.nodePackages.nodemon

@@ -86,3 +86,19 @@ class RenderRequest(BaseModel):
     format: Literal["mp4", "webm", "gif", "mov"] = Field(default="mp4", description="Output video format")
     quality: Literal["low", "medium", "high", "4k"] = Field(default="medium", description="Video quality preset")
     background_color: Optional[str] = Field(default=None, description="Background color")
+
+
+class ManualCodeUpdateRequest(BaseModel):
+    """Request to manually update and validate code in a session."""
+    session_id: str
+    code: str = Field(..., description="Manually edited Manim code")
+    should_validate: bool = Field(default=True, description="Whether to validate the code before updating", alias="validate")
+
+
+class ManualCodeUpdateResponse(BaseModel):
+    """Response from manual code update."""
+    session_id: str
+    code: str
+    validation_result: Optional[dict] = None
+    is_valid: bool = False
+    message: str

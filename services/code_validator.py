@@ -118,6 +118,14 @@ async def validate_manim_dry_run(code: str) -> ValidationResult:
         temp_dir = tempfile.mkdtemp(prefix="manim_validate_")
         script_path = Path(temp_dir) / "validate_scene.py"
 
+        # Create media directories that Manim expects
+        media_dir = Path(temp_dir) / "media"
+        media_dir.mkdir(exist_ok=True)
+        (media_dir / "Tex").mkdir(exist_ok=True)
+        (media_dir / "images").mkdir(exist_ok=True)
+        (media_dir / "text").mkdir(exist_ok=True)
+        (media_dir / "videos").mkdir(exist_ok=True)
+
         # Write code to file
         with open(script_path, "w") as f:
             f.write(code)

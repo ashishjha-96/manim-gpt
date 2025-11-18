@@ -2,9 +2,11 @@
 API routes for iterative session-based code generation.
 """
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import traceback
 import shutil
+import json
+from datetime import datetime
 
 from models.session import (
     IterativeGenerationRequest,
@@ -12,11 +14,14 @@ from models.session import (
     SessionStatusResponse,
     RenderRequest,
     IterationStatus,
-    CodeIteration
+    CodeIteration,
+    ManualCodeUpdateRequest,
+    ManualCodeUpdateResponse
 )
 from services.session_manager import session_manager
-from services.iterative_workflow import run_iterative_generation
+from services.iterative_workflow import run_iterative_generation, run_iterative_generation_streaming
 from services.video_rendering import render_manim_video
+from services.code_validator import validate_code
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -271,3 +276,163 @@ async def list_sessions():
             for s in sessions
         ]
     }
+
+
+@router.post("/generate-stream")
+async def start_iterative_generation_stream(request: IterativeGenerationRequest):
+    """
+    Start a new iterative code generation session with Server-Sent Events streaming.
+
+    This endpoint streams real-time progress updates including:
+    - Each iteration's generated code
+    - Validation results and errors
+    - Current status and progress
+
+    Returns a stream of JSON objects with progress updates.
+    """
+
+    async def event_generator():
+        """Generator for Server-Sent Events."""
+        try:
+            # Create session
+            session = session_manager.create_session(
+                prompt=request.prompt,
+                model=request.model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                max_iterations=request.max_iterations
+            )
+
+            print(f"\n[API Streaming] Created session {session.session_id}")
+
+            # Stream workflow progress
+            async for progress_data in run_iterative_generation_streaming(
+                session_id=session.session_id,
+                prompt=request.prompt,
+                model=request.model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                max_iterations=request.max_iterations
+            ):
+                # Update session with latest progress
+                if progress_data.get("event") == "progress" or progress_data.get("event") == "complete":
+                    session.current_iteration = progress_data.get("current_iteration", 0)
+                    session.status = progress_data.get("status", IterationStatus.GENERATING)
+
+                    # Update iterations history
+                    iterations_history = progress_data.get("iterations_history", [])
+                    session.iterations = [
+                        CodeIteration(
+                            iteration_number=iter_data["iteration_number"],
+                            generated_code=iter_data["generated_code"],
+                            validation_result=iter_data["validation_result"],
+                            timestamp=datetime.fromisoformat(iter_data["timestamp"]),
+                            status=iter_data["status"]
+                        )
+                        for iter_data in iterations_history
+                    ]
+
+                    # Update final code if successful
+                    if session.status == IterationStatus.SUCCESS:
+                        session.final_code = progress_data.get("generated_code")
+
+                    session_manager.update_session(session)
+
+                # Send SSE event
+                yield f"data: {json.dumps(progress_data)}\n\n"
+
+            # Send final done event
+            yield f"data: {json.dumps({'event': 'done', 'session_id': session.session_id})}\n\n"
+
+        except Exception as e:
+            error_data = {
+                "event": "error",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
+
+
+@router.post("/update-code", response_model=ManualCodeUpdateResponse)
+async def update_session_code_manually(request: ManualCodeUpdateRequest):
+    """
+    Manually update and validate code in an existing session.
+
+    This allows users to fix code after max iterations is reached or to make
+    manual improvements. The code can be validated before being saved to the session.
+
+    Args:
+        request: ManualCodeUpdateRequest with session_id and edited code
+
+    Returns:
+        ManualCodeUpdateResponse with validation results
+    """
+    session = session_manager.get_session(request.session_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {request.session_id} not found"
+        )
+
+    validation_result = None
+    is_valid = False
+
+    # Validate if requested
+    if request.should_validate:
+        try:
+            validation_result = await validate_code(request.code, dry_run=True)
+            is_valid = validation_result.get("is_valid", False)
+
+            # Create a new iteration record for the manual edit
+            manual_iteration = CodeIteration(
+                iteration_number=session.current_iteration + 1,
+                generated_code=request.code,
+                validation_result=validation_result,
+                timestamp=datetime.utcnow(),
+                status=IterationStatus.SUCCESS if is_valid else IterationStatus.FAILED
+            )
+
+            # Add to session history
+            session.iterations.append(manual_iteration)
+            session.current_iteration += 1
+
+            # Update final code if valid
+            if is_valid:
+                session.final_code = request.code
+                session.status = IterationStatus.SUCCESS
+            else:
+                session.status = IterationStatus.FAILED
+
+            session_manager.update_session(session)
+
+            message = "Code validated and updated successfully!" if is_valid else "Code updated but validation failed. Check errors."
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error validating code: {str(e)}"
+            )
+    else:
+        # Update without validation
+        session.final_code = request.code
+        session_manager.update_session(session)
+        message = "Code updated without validation"
+
+    return ManualCodeUpdateResponse(
+        session_id=request.session_id,
+        code=request.code,
+        validation_result=validation_result,
+        is_valid=is_valid,
+        message=message
+    )
