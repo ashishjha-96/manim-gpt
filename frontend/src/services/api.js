@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// In development with Vite proxy, use /api prefix
+// In production or IDX preview, the proxy handles routing to localhost:8000
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 /**
  * API service for Manim GPT backend

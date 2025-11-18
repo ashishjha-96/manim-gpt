@@ -173,6 +173,7 @@ async def render_session_code(request: RenderRequest):
         )
 
         return {
+            "status": "success",
             "session_id": request.session_id,
             "video_path": video_path,
             "format": request.format,

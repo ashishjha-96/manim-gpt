@@ -64,16 +64,7 @@
           manager = "web";
           cwd = "frontend";
           env = {
-            VITE_API_URL = "http://localhost:8000";
-          };
-        };
-        # Gradio UI (alternative)
-        gradio = {
-          command = ["uv" "run" "gradio_app.py"];
-          manager = "web";
-          env = {
             PORT = "$PORT";
-            API_URL = "http://localhost:8000";
           };
         };
       };
@@ -91,6 +82,8 @@
       };
       # Runs when the workspace is (re)started
       onStart = {
+        # Install frontend dependencies if needed
+        npm-install = "cd frontend && npm install";
         # Start the FastAPI backend server
         start-api = "uv run uvicorn main:app --host 0.0.0.0 --port 8000 &";
       };

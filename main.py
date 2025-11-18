@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import litellm
 from dotenv import load_dotenv
 
@@ -11,6 +12,15 @@ load_dotenv()
 litellm.set_verbose = True
 
 app = FastAPI(title="Manim GPT - AI-Powered Video Generation API")
+
+# Add CORS middleware to allow frontend requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include routers
 app.include_router(code_router)
