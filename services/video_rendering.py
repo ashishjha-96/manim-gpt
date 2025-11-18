@@ -13,10 +13,24 @@ async def render_manim_video(
     code: str,
     output_format: str,
     quality: str,
-    background_color: Optional[str] = None
+    background_color: Optional[str] = None,
+    include_subtitles: bool = False,
+    prompt: Optional[str] = None,
+    model: Optional[str] = "cerebras/zai-glm-4.6",
+    subtitle_style: Optional[str] = None
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
+
+    Args:
+        code: Manim Python code
+        output_format: Video format (mp4, webm, gif, mov)
+        quality: Quality preset (low, medium, high, 4k)
+        background_color: Optional background color
+        include_subtitles: Whether to generate and add subtitles
+        prompt: User's original prompt (needed for subtitle generation)
+        model: LLM model for subtitle generation
+        subtitle_style: Optional custom subtitle style
 
     Returns:
         tuple: (video_path, temp_dir)
@@ -140,7 +154,33 @@ async def render_manim_video(
                     all_files.append(os.path.join(root, file))
             raise Exception(f"Output video not found. Searched paths: {possible_paths}. Files in temp_dir: {all_files}\n\nManim STDOUT:\n{stdout_str}\n\nManim STDERR:\n{stderr_str}")
 
-        return str(video_path), temp_dir
+        # Add subtitles if requested
+        final_video_path = str(video_path)
+        if include_subtitles and prompt:
+            print(f"[Video Rendering] Subtitle generation requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
+            print(f"[Video Rendering] Original video path: {video_path}")
+            from services.subtitle_generator import generate_and_add_subtitles
+            try:
+                print(f"[Video Rendering] Starting subtitle generation...")
+                final_video_path = await generate_and_add_subtitles(
+                    video_path=str(video_path),
+                    code=code,
+                    prompt=prompt,
+                    temp_dir=temp_dir,
+                    model=model,
+                    subtitle_style=subtitle_style
+                )
+                print(f"[Video Rendering] Subtitle generation completed! New video path: {final_video_path}")
+            except Exception as e:
+                # If subtitle generation fails, log but continue with original video
+                print(f"[Video Rendering] ERROR: Subtitle generation failed: {e}")
+                import traceback
+                print(f"[Video Rendering] Traceback: {traceback.format_exc()}")
+                # Return original video without subtitles
+        else:
+            print(f"[Video Rendering] Subtitles NOT requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
+
+        return final_video_path, temp_dir
 
     except Exception as e:
         # Clean up temp directory on error

@@ -45,7 +45,11 @@ async def generate_video(request: VideoGenerationRequest):
             code=generated_code,
             output_format=request.format,
             quality=request.quality,
-            background_color=request.background_color
+            background_color=request.background_color,
+            include_subtitles=request.include_subtitles,
+            prompt=request.prompt,
+            model=request.model,
+            subtitle_style=request.subtitle_style
         )
 
         return VideoGenerationResponse(

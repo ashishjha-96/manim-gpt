@@ -175,7 +175,11 @@ async def render_session_code(request: RenderRequest):
             code=session.final_code,
             output_format=request.format,
             quality=request.quality,
-            background_color=request.background_color
+            background_color=request.background_color,
+            include_subtitles=request.include_subtitles,
+            prompt=session.prompt,
+            model=request.model,
+            subtitle_style=request.subtitle_style
         )
 
         return {

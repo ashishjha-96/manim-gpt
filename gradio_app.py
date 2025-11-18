@@ -349,6 +349,7 @@ async def render_from_session(
     format: str,
     quality: str,
     background_color: str,
+    include_subtitles: bool,
     progress=gr.Progress()
 ) -> Tuple[Optional[str], str]:
     """
@@ -362,6 +363,14 @@ async def render_from_session(
         return None, "❌ **Error:** Session ID is empty"
 
     progress(0.0, desc="🎬 Starting render...")
+
+    # Log the render request
+    print(f"\n[Gradio] Render request:")
+    print(f"  - Session ID: {session_id}")
+    print(f"  - Format: {format}")
+    print(f"  - Quality: {quality}")
+    print(f"  - Background: {background_color}")
+    print(f"  - Include Subtitles: {include_subtitles}")
 
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -393,6 +402,7 @@ async def render_from_session(
                     "format": format,
                     "quality": quality,
                     "background_color": background_color,
+                    "include_subtitles": include_subtitles,
                 }
             )
 
@@ -437,6 +447,14 @@ async def render_from_session(
 
             progress(1.0, desc="✅ Complete!")
 
+            # Check if subtitles were included
+            subtitle_indicator = ""
+            if include_subtitles:
+                if "_subtitled" in str(video_path):
+                    subtitle_indicator = "\n\n📝 **Subtitles:** ✅ Included (AI-generated narration)"
+                else:
+                    subtitle_indicator = "\n\n📝 **Subtitles:** ⚠️ Requested but may have failed (check server logs)"
+
             success_msg = f"""✅ **Video Rendered Successfully!**
 
 **File:** `{local_path}`
@@ -447,7 +465,7 @@ async def render_from_session(
 
 **Quality:** {quality}
 
-**Session:** `{session_id[:16]}...`
+**Session:** `{session_id[:16]}...`{subtitle_indicator}
 """
             return str(local_path), success_msg
 
@@ -603,6 +621,12 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                     label="Background Color"
                 )
 
+                render_subtitles = gr.Checkbox(
+                    value=True,
+                    label="📝 Include AI-Generated Subtitles",
+                    info="Add educational narration that explains the animation (requires LLM API key)"
+                )
+
                 render_btn = gr.Button("🎬 Render Video", variant="primary", size="lg")
 
                 iter_video_output = gr.Video(label="Rendered Video")
@@ -635,7 +659,8 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                 iter_session_id,
                 render_format,
                 render_quality,
-                render_bg_color
+                render_bg_color,
+                render_subtitles
             ],
             outputs=[iter_video_output, iter_render_status]
         )
@@ -672,8 +697,10 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
            - 🎬 Once valid, you can render the video
 
         3. **Render Video** - Once you have valid code (session ID will appear), you can render it
+           - 📝 **NEW: Code Narration Subtitles** - Enable to automatically generate educational subtitles that explain the animation
 
         ### New Features:
+        - 📝 **Code Narration Subtitles** - AI-generated subtitles that narrate what's happening in the animation
         - 📊 **Real-time Iteration Logs** - See each iteration's code, errors, and status as they happen
         - ✏️ **Manual Code Editing** - Fix errors yourself after automatic refinement completes
         - 🔄 **Streaming Updates** - Watch the workflow progress in real-time
@@ -685,6 +712,7 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
         - ✅ Validated code before rendering
         - 📊 Full visibility into every iteration with detailed logs
         - 💾 Session-based workflow
+        - 📝 Educational narration for better understanding
         """)
 
     # Help Section

@@ -86,6 +86,9 @@ class RenderRequest(BaseModel):
     format: Literal["mp4", "webm", "gif", "mov"] = Field(default="mp4", description="Output video format")
     quality: Literal["low", "medium", "high", "4k"] = Field(default="medium", description="Video quality preset")
     background_color: Optional[str] = Field(default=None, description="Background color")
+    include_subtitles: bool = Field(default=False, description="Generate and add narration subtitles to the video")
+    subtitle_style: Optional[str] = Field(default=None, description="Custom subtitle style in ASS format")
+    model: Optional[str] = Field(default="cerebras/zai-glm-4.6", description="LLM model for subtitle generation")
 
 
 class ManualCodeUpdateRequest(BaseModel):

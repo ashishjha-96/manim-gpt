@@ -22,6 +22,8 @@ class VideoGenerationRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=2000, description="Maximum tokens for code generation")
     temperature: Optional[float] = Field(default=0.7, description="Temperature for code generation")
     background_color: Optional[str] = Field(default=None, description="Background color (e.g., '#000000', 'WHITE')")
+    include_subtitles: bool = Field(default=False, description="Generate and add narration subtitles to the video")
+    subtitle_style: Optional[str] = Field(default=None, description="Custom subtitle style in ASS format")
 
 
 class VideoGenerationResponse(BaseModel):

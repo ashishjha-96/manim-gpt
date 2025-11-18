@@ -45,6 +45,7 @@ uv run gradio_app.py
 ## Features
 
 - **AI-Powered Code Generation**: Generate Manim animation code from natural language prompts
+- **Code Narration Subtitles**: Automatically generate educational narration subtitles that explain the animation (NEW!)
 - **Iterative Code Refinement**: Automatic error detection and correction with LangGraph workflow
 - **Real-time Streaming Updates**: Watch the generation process with live iteration logs
 - **Manual Code Editing**: Fix errors yourself with built-in validation support
@@ -212,6 +213,7 @@ Then open `http://localhost:7860` in your browser.
 - **Real-time Streaming**: Watch each iteration's progress, errors, and fixes in real-time
 - **Manual Code Editing**: Edit code directly in the UI and validate before rendering
 - **Session Management**: Maintain state across generation, editing, and rendering
+- **Code Narration Subtitles**: Enable AI-generated educational subtitles that explain the animation (NEW!)
 - **Multiple Output Formats**: MP4, WebM, GIF, or MOV
 - **Quality Presets**: Low (480p), medium (720p), high (1080p), or 4K resolution
 - **API Health Monitoring**: Check backend status at any time
@@ -261,6 +263,8 @@ Generate a complete Manim video from a text prompt.
 - `max_tokens` (optional): Maximum tokens for code generation (default: 2000)
 - `temperature` (optional): Temperature for code generation (default: 0.7)
 - `background_color` (optional): Background color in hex or Manim color name
+- `include_subtitles` (optional): Generate and add narration subtitles to the video (default: `false`)
+- `subtitle_style` (optional): Custom subtitle style in ASS format (default: white text with black outline)
 
 **Response:**
 ```json
@@ -442,8 +446,10 @@ You can customize default parameters by modifying the Pydantic models in [main.p
 
 - **Python**: 3.11 or higher
 - **Manim**: Requires LaTeX for text rendering (optional, but recommended)
-- **FFmpeg**: Required for video rendering
+- **FFmpeg**: Required for video rendering and subtitle generation
 - **Storage**: Temporary space for video generation (cleaned up automatically)
+
+**Note**: FFmpeg is required for both video rendering and subtitle generation. If you enable subtitles without FFmpeg installed, you'll receive an error message with installation instructions.
 
 ### Installing System Dependencies
 
