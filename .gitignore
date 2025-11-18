@@ -57,3 +57,5 @@ uv.lock
 generated_videos
 media
 test_output
+
+.vite
