@@ -169,11 +169,42 @@ export OPENAI_API_KEY="your-api-key"
 export ANTHROPIC_API_KEY="your-api-key"
 ```
 
-## Using the Gradio UI
+## User Interfaces
 
-The Gradio UI provides an easy-to-use web interface for generating Manim videos with an iterative refinement workflow.
+Manim GPT now offers **two modern web interfaces**:
 
-### Starting the Application
+### 1. React + Tailwind UI (New!)
+
+A modern, responsive React application with a beautiful Tailwind CSS design.
+
+**Features**:
+- Real-time streaming code generation with live progress updates
+- Interactive code editor with syntax highlighting
+- LLM model selection from 100+ providers
+- Video rendering with multiple formats and qualities
+- Iteration tracking and detailed generation history
+- Clean, professional design with excellent UX
+
+**Starting the React UI**:
+```bash
+# Terminal 1: Start the FastAPI backend
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2: Start the React frontend
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://localhost:5173` in your browser.
+
+See [frontend/README.md](frontend/README.md) for detailed documentation.
+
+### 2. Gradio UI (Classic)
+
+The original Gradio interface provides an easy-to-use web interface for generating Manim videos with an iterative refinement workflow.
+
+**Starting the Gradio UI**:
 
 **If using Nix** (recommended):
 ```bash
@@ -494,11 +525,29 @@ If you get LaTeX-related errors and don't need LaTeX text rendering:
 ```
 manim-gpt/
 ├── main.py              # FastAPI application entry point
-├── gradio_app.py        # Gradio web UI
+├── gradio_app.py        # Gradio web UI (classic)
+├── frontend/            # React + Tailwind UI (new!)
+│   ├── src/
+│   │   ├── components/  # React components
+│   │   ├── services/    # API client
+│   │   ├── App.jsx      # Main app component
+│   │   └── index.css    # Tailwind styles
+│   ├── package.json
+│   └── README.md        # Frontend documentation
 ├── api/                 # API route modules
 │   ├── code_routes.py   # Code generation endpoints
 │   ├── video_routes.py  # Video generation endpoints
+│   ├── session_routes.py # Session management endpoints
 │   └── model_routes.py  # Model listing endpoints
+├── models/              # Data models and schemas
+│   ├── schemas.py       # Pydantic request/response models
+│   └── session.py       # Session state models
+├── services/            # Core business logic
+│   ├── code_generation.py      # LLM code generation
+│   ├── code_validator.py       # Code validation
+│   ├── iterative_workflow.py   # LangGraph workflow
+│   ├── session_manager.py      # Session management
+│   └── video_rendering.py      # Video rendering
 ├── pyproject.toml       # Project dependencies
 ├── .env                 # Environment variables (API keys)
 ├── .env.example         # Example environment file
