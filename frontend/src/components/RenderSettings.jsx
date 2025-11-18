@@ -23,6 +23,7 @@ export default function RenderSettings({
   const [format, setFormat] = useState('mp4');
   const [quality, setQuality] = useState('medium');
   const [backgroundColor, setBackgroundColor] = useState('#000000');
+  const [includeSubtitles, setIncludeSubtitles] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleRender = () => {
@@ -30,6 +31,7 @@ export default function RenderSettings({
       format,
       quality,
       background_color: backgroundColor,
+      include_subtitles: includeSubtitles,
     });
   };
 
@@ -84,6 +86,27 @@ export default function RenderSettings({
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
           </div>
         </div>
+
+        {/* Subtitle Toggle */}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="includeSubtitles"
+            checked={includeSubtitles}
+            onChange={(e) => setIncludeSubtitles(e.target.checked)}
+            disabled={isRendering}
+            className="w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <label
+            htmlFor="includeSubtitles"
+            className="text-sm font-medium text-gray-700 cursor-pointer select-none"
+          >
+            Include AI-Generated Subtitles
+          </label>
+        </div>
+        <p className="text-xs text-gray-500 -mt-2 ml-6">
+          Add educational narration that explains the animation
+        </p>
 
         {/* Advanced Settings */}
         <div>
