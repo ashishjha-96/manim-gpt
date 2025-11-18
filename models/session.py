@@ -17,6 +17,20 @@ class IterationStatus(str, Enum):
     MAX_ITERATIONS_REACHED = "max_iterations_reached"
 
 
+class GenerationMetrics(BaseModel):
+    """Metrics for code generation."""
+    time_taken: float = Field(..., description="Time taken in seconds")
+    prompt_tokens: Optional[int] = Field(default=None, description="Number of prompt tokens used")
+    completion_tokens: Optional[int] = Field(default=None, description="Number of completion tokens generated")
+    total_tokens: Optional[int] = Field(default=None, description="Total tokens used")
+    model: Optional[str] = Field(default=None, description="Model used for generation")
+
+
+class ValidationMetrics(BaseModel):
+    """Metrics for code validation."""
+    time_taken: float = Field(..., description="Time taken in seconds")
+
+
 class CodeIteration(BaseModel):
     """Represents a single iteration of code generation."""
     iteration_number: int
@@ -24,6 +38,8 @@ class CodeIteration(BaseModel):
     validation_result: Optional[dict] = None  # Contains is_valid, errors, warnings
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     status: IterationStatus
+    generation_metrics: Optional[GenerationMetrics] = Field(default=None, description="Metrics from code generation")
+    validation_metrics: Optional[ValidationMetrics] = Field(default=None, description="Metrics from validation")
 
 
 class SessionState(BaseModel):

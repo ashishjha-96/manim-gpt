@@ -5,13 +5,14 @@ from typing import TypedDict, Annotated, Sequence, Callable, Optional, Any
 from datetime import datetime
 import operator
 import asyncio
+import time
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from litellm import acompletion
 from services.code_validator import validate_code
-from models.session import IterationStatus, CodeIteration
+from models.session import IterationStatus, CodeIteration, GenerationMetrics, ValidationMetrics
 from utils.logger import get_logger
 
 # Create loggers for different workflow components
@@ -39,6 +40,9 @@ class WorkflowState(TypedDict):
     iterations_history: list[CodeIteration]
     status: IterationStatus
     error_message: str | None
+    # Metrics for current iteration
+    generation_metrics: GenerationMetrics | None
+    validation_metrics: ValidationMetrics | None
 
 
 async def generate_code_node(state: WorkflowState) -> dict:
@@ -114,7 +118,8 @@ ERRORS FOUND:
 
 Please generate corrected Manim code that fixes these issues."""
 
-    # Call LLM
+    # Call LLM and track time
+    start_time = time.time()
     response = await acompletion(
         model=state["model"],
         messages=[
@@ -124,8 +129,25 @@ Please generate corrected Manim code that fixes these issues."""
         max_tokens=state["max_tokens"],
         temperature=state["temperature"],
     )
+    end_time = time.time()
+    time_taken = end_time - start_time
 
     generated_code = response.choices[0].message.content.strip()
+
+    # Extract token usage from response
+    usage = response.usage if hasattr(response, 'usage') else None
+    prompt_tokens = usage.prompt_tokens if usage and hasattr(usage, 'prompt_tokens') else None
+    completion_tokens = usage.completion_tokens if usage and hasattr(usage, 'completion_tokens') else None
+    total_tokens = usage.total_tokens if usage and hasattr(usage, 'total_tokens') else None
+
+    # Create generation metrics
+    generation_metrics = GenerationMetrics(
+        time_taken=time_taken,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        model=state["model"]
+    )
 
     # Clean up markdown formatting - be aggressive about removing code fences
     # Remove starting markers
@@ -149,12 +171,15 @@ Please generate corrected Manim code that fixes these issues."""
 
     generated_code = '\n'.join(cleaned_lines).strip()
 
-    logger_generate.info(f"Generated {len(generated_code)} characters of code")
+    logger_generate.info(f"Generated {len(generated_code)} characters of code in {time_taken:.2f}s")
+    if total_tokens:
+        logger_generate.info(f"Token usage: {total_tokens} total ({prompt_tokens} prompt + {completion_tokens} completion)")
 
     return {
         "generated_code": generated_code,
         "messages": [HumanMessage(content=user_message)],
-        "status": IterationStatus.VALIDATING
+        "status": IterationStatus.VALIDATING,
+        "generation_metrics": generation_metrics
     }
 
 
@@ -166,22 +191,33 @@ async def validate_code_node(state: WorkflowState) -> dict:
     logger_validate.info(f"Validating code for iteration {state['current_iteration'] + 1}")
 
     code = state["generated_code"]
-    validation_result = await validate_code(code, dry_run=True)
 
-    # Create iteration record
+    # Track validation time
+    start_time = time.time()
+    validation_result = await validate_code(code, dry_run=True)
+    end_time = time.time()
+
+    # Create validation metrics
+    validation_metrics = ValidationMetrics(
+        time_taken=end_time - start_time
+    )
+
+    # Create iteration record with metrics
     iteration = CodeIteration(
         iteration_number=state["current_iteration"] + 1,
         generated_code=code,
         validation_result=validation_result,
         timestamp=datetime.utcnow(),
-        status=IterationStatus.SUCCESS if validation_result["is_valid"] else IterationStatus.REFINING
+        status=IterationStatus.SUCCESS if validation_result["is_valid"] else IterationStatus.REFINING,
+        generation_metrics=state.get("generation_metrics"),
+        validation_metrics=validation_metrics
     )
 
     # Add to history
     iterations_history = state["iterations_history"].copy()
     iterations_history.append(iteration)
 
-    logger_validate.info(f"Validation result: {validation_result['is_valid']}")
+    logger_validate.info(f"Validation result: {validation_result['is_valid']} (took {validation_metrics.time_taken:.2f}s)")
     if not validation_result["is_valid"]:
         logger_validate.warning(f"Errors: {validation_result['errors']}")
 
@@ -189,6 +225,7 @@ async def validate_code_node(state: WorkflowState) -> dict:
         "validation_result": validation_result,
         "iterations_history": iterations_history,
         "current_iteration": state["current_iteration"] + 1,
+        "validation_metrics": validation_metrics
     }
 
 
@@ -338,7 +375,9 @@ async def run_iterative_generation(
         "validation_result": None,
         "iterations_history": [],
         "status": IterationStatus.GENERATING,
-        "error_message": None
+        "error_message": None,
+        "generation_metrics": None,
+        "validation_metrics": None
     }
 
     # Create and run workflow
@@ -417,7 +456,9 @@ async def run_iterative_generation_streaming(
         "validation_result": None,
         "iterations_history": [],
         "status": IterationStatus.GENERATING,
-        "error_message": None
+        "error_message": None,
+        "generation_metrics": None,
+        "validation_metrics": None
     }
 
     # Create workflow
@@ -458,7 +499,17 @@ async def run_iterative_generation_streaming(
                             "generated_code": iter.generated_code,
                             "validation_result": iter.validation_result,
                             "timestamp": iter.timestamp.isoformat(),
-                            "status": iter.status
+                            "status": iter.status,
+                            "generation_metrics": {
+                                "time_taken": iter.generation_metrics.time_taken,
+                                "prompt_tokens": iter.generation_metrics.prompt_tokens,
+                                "completion_tokens": iter.generation_metrics.completion_tokens,
+                                "total_tokens": iter.generation_metrics.total_tokens,
+                                "model": iter.generation_metrics.model
+                            } if iter.generation_metrics else None,
+                            "validation_metrics": {
+                                "time_taken": iter.validation_metrics.time_taken
+                            } if iter.validation_metrics else None
                         }
                         for iter in iterations_history
                     ],
@@ -490,7 +541,17 @@ async def run_iterative_generation_streaming(
                     "generated_code": iter.generated_code,
                     "validation_result": iter.validation_result,
                     "timestamp": iter.timestamp.isoformat(),
-                    "status": iter.status
+                    "status": iter.status,
+                    "generation_metrics": {
+                        "time_taken": iter.generation_metrics.time_taken,
+                        "prompt_tokens": iter.generation_metrics.prompt_tokens,
+                        "completion_tokens": iter.generation_metrics.completion_tokens,
+                        "total_tokens": iter.generation_metrics.total_tokens,
+                        "model": iter.generation_metrics.model
+                    } if iter.generation_metrics else None,
+                    "validation_metrics": {
+                        "time_taken": iter.validation_metrics.time_taken
+                    } if iter.validation_metrics else None
                 }
                 for iter in final_state.get("iterations_history", [])
             ],
