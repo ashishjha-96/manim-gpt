@@ -3,14 +3,14 @@ import os
 import shutil
 import sys
 import tempfile
-import logging
 from pathlib import Path
 from typing import Optional
 
 from utils.constants import QUALITY_PRESETS
+from utils.logger import get_logger
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Create logger
+logger = get_logger("VideoRendering")
 
 
 async def render_manim_video(
@@ -161,11 +161,11 @@ async def render_manim_video(
         # Add subtitles if requested
         final_video_path = str(video_path)
         if include_subtitles and prompt:
-            logger.info(f"[Video Rendering] Subtitle generation requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
-            logger.info(f"[Video Rendering] Original video path: {video_path}")
+            logger.info(f"Subtitle generation requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
+            logger.info(f"Original video path: {video_path}")
             from services.subtitle_generator import generate_and_add_subtitles
             try:
-                logger.info(f"[Video Rendering] Starting subtitle generation...")
+                logger.info("Starting subtitle generation...")
                 final_video_path = await generate_and_add_subtitles(
                     video_path=str(video_path),
                     code=code,
@@ -174,15 +174,15 @@ async def render_manim_video(
                     model=model,
                     subtitle_style=subtitle_style
                 )
-                logger.info(f"[Video Rendering] Subtitle generation completed! New video path: {final_video_path}")
+                logger.info(f"Subtitle generation completed! New video path: {final_video_path}")
             except Exception as e:
                 # If subtitle generation fails, log but continue with original video
-                logger.error(f"[Video Rendering] ERROR: Subtitle generation failed: {e}")
+                logger.error(f"Subtitle generation failed: {e}")
                 import traceback
-                logger.error(f"[Video Rendering] Traceback: {traceback.format_exc()}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 # Return original video without subtitles
         else:
-            logger.info(f"[Video Rendering] Subtitles NOT requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
+            logger.info(f"Subtitles NOT requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
 
         return final_video_path, temp_dir
 

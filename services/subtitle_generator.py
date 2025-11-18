@@ -1,13 +1,14 @@
 import asyncio
 import re
 import shutil
-import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 from litellm import acompletion
 
-# Configure logging
-logger = logging.getLogger(__name__)
+from utils.logger import get_logger
+
+# Create logger
+logger = get_logger("SubtitleGenerator")
 
 
 def check_ffmpeg_available() -> bool:
@@ -214,10 +215,10 @@ async def generate_and_add_subtitles(
     Raises:
         RuntimeError: If ffmpeg is not available
     """
-    logger.info(f"[Subtitle Generator] Starting subtitle generation pipeline")
-    logger.info(f"[Subtitle Generator] Video path: {video_path}")
-    logger.info(f"[Subtitle Generator] Model: {model}")
-    logger.info(f"[Subtitle Generator] Prompt: {prompt[:100]}...")
+    logger.info("Starting subtitle generation pipeline")
+    logger.info(f"Video path: {video_path}")
+    logger.info(f"Model: {model}")
+    logger.info(f"Prompt: {prompt[:100]}...")
 
     # Check ffmpeg availability early
     if not check_ffmpeg_available():
@@ -225,26 +226,26 @@ async def generate_and_add_subtitles(
             "FFmpeg is not installed. Subtitle generation requires FFmpeg. "
             "Please install it from https://ffmpeg.org/download.html"
         )
-    logger.info(f"[Subtitle Generator] FFmpeg is available")
+    logger.info("FFmpeg is available")
     temp_path = Path(temp_dir)
 
     # Generate narration segments
-    logger.info(f"[Subtitle Generator] Generating narration segments using LLM...")
+    logger.info("Generating narration segments using LLM...")
     segments = await generate_narration_from_code(code, prompt, model=model)
-    logger.info(f"[Subtitle Generator] Generated {len(segments)} narration segments")
+    logger.info(f"Generated {len(segments)} narration segments")
 
     # Create SRT file
     srt_path = temp_path / "subtitles.srt"
-    logger.info(f"[Subtitle Generator] Creating SRT file at: {srt_path}")
+    logger.info(f"Creating SRT file at: {srt_path}")
     create_srt_file(segments, str(srt_path))
-    logger.info(f"[Subtitle Generator] SRT file created successfully")
+    logger.info("SRT file created successfully")
 
     # Add subtitles to video
     video_path_obj = Path(video_path)
     output_path = video_path_obj.parent / f"{video_path_obj.stem}_subtitled{video_path_obj.suffix}"
-    logger.info(f"[Subtitle Generator] Adding subtitles to video using FFmpeg...")
-    logger.info(f"[Subtitle Generator] Input video: {video_path}")
-    logger.info(f"[Subtitle Generator] Output video: {output_path}")
+    logger.info("Adding subtitles to video using FFmpeg...")
+    logger.info(f"Input video: {video_path}")
+    logger.info(f"Output video: {output_path}")
 
     await add_subtitles_to_video(
         video_path,
@@ -253,6 +254,6 @@ async def generate_and_add_subtitles(
         subtitle_style
     )
 
-    logger.info(f"[Subtitle Generator] Subtitles added successfully!")
-    logger.info(f"[Subtitle Generator] Final video with subtitles: {output_path}")
+    logger.info("Subtitles added successfully!")
+    logger.info(f"Final video with subtitles: {output_path}")
     return str(output_path)

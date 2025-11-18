@@ -5,10 +5,13 @@ from dotenv import load_dotenv
 import os
 
 from api import code_router, video_router, model_router, session_router
-from utils.logger import get_logger
+from utils.logger import get_logger, setup_logging
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Setup logging to intercept standard logging and redirect to loguru
+setup_logging()
 
 # Create logger
 logger = get_logger("Main")
@@ -71,4 +74,5 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting Manim GPT API server on http://0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use log_config=None to disable uvicorn's default logging and use our intercepted logging
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)

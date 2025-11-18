@@ -7,15 +7,15 @@ import os
 from pathlib import Path
 import asyncio
 import json
-import logging
 from typing import Optional, Tuple
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from utils.logger import get_logger, setup_logging
+
+# Setup logging to use loguru
+setup_logging()
+
+# Create logger
+logger = get_logger("Gradio")
 
 # API base URL
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -373,7 +373,7 @@ async def render_from_session(
     progress(0.0, desc="🎬 Starting render...")
 
     # Log the render request
-    logger.info(f"[Gradio] Render request:")
+    logger.info("Render request:")
     logger.info(f"  - Session ID: {session_id}")
     logger.info(f"  - Format: {format}")
     logger.info(f"  - Quality: {quality}")
