@@ -24,9 +24,6 @@ from services.video_rendering import render_manim_video
 from services.code_validator import validate_code
 from utils.logger import get_logger
 
-# Create logger for API routes
-logger = get_logger("API")
-
 router = APIRouter(prefix="/session", tags=["session"])
 
 
@@ -56,6 +53,7 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             max_iterations=request.max_iterations
         )
 
+        logger = get_logger("API", session.session_id)
         logger.info(f"Created session {session.session_id}")
 
         # Run iterative workflow
@@ -103,8 +101,10 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error in iterative generation: {str(e)}")
-        logger.debug(traceback.format_exc())
+        # Use logger with session_id if available
+        error_logger = get_logger("API", session.session_id if 'session' in locals() else "N/A")
+        error_logger.error(f"Error in iterative generation: {str(e)}")
+        error_logger.debug(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error in iterative generation: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
@@ -170,6 +170,7 @@ async def render_session_code(request: RenderRequest):
     temp_dir = None
 
     try:
+        logger = get_logger("API", request.session_id)
         # Render the video
         video_path, temp_dir = await render_manim_video(
             code=session.final_code,
@@ -179,7 +180,8 @@ async def render_session_code(request: RenderRequest):
             include_subtitles=request.include_subtitles,
             prompt=session.prompt,
             model=request.model,
-            subtitle_style=request.subtitle_style
+            subtitle_style=request.subtitle_style,
+            session_id=request.session_id
         )
 
         # Save video path to session
@@ -199,8 +201,9 @@ async def render_session_code(request: RenderRequest):
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-        logger.error(f"Error rendering video: {str(e)}")
-        logger.debug(traceback.format_exc())
+        error_logger = get_logger("API", request.session_id)
+        error_logger.error(f"Error rendering video: {str(e)}")
+        error_logger.debug(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error rendering video: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
@@ -398,6 +401,7 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
                 max_iterations=request.max_iterations
             )
 
+            logger = get_logger("API", session.session_id)
             logger.info(f"[Streaming] Created session {session.session_id}")
 
             # Stream workflow progress
@@ -440,8 +444,9 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
             yield f"data: {json.dumps({'event': 'done', 'session_id': session.session_id})}\n\n"
 
         except Exception as e:
-            logger.error(f"[Streaming] Error: {str(e)}")
-            logger.debug(traceback.format_exc())
+            error_logger = get_logger("API", session.session_id if 'session' in locals() else "N/A")
+            error_logger.error(f"[Streaming] Error: {str(e)}")
+            error_logger.debug(traceback.format_exc())
             error_data = {
                 "event": "error",
                 "error": str(e),
@@ -488,7 +493,7 @@ async def update_session_code_manually(request: ManualCodeUpdateRequest):
     # Validate if requested
     if request.should_validate:
         try:
-            validation_result = await validate_code(request.code, dry_run=True)
+            validation_result = await validate_code(request.code, dry_run=True, session_id=request.session_id)
             is_valid = validation_result.get("is_valid", False)
 
             # Create a new iteration record for the manual edit

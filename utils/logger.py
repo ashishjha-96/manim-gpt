@@ -11,7 +11,7 @@ logger.remove()
 # Add custom handler with nice formatting
 logger.add(
     sys.stderr,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[context]: <20}</cyan> | <level>{message}</level>",
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[context]: <20}</cyan> | <yellow>{extra[session_id]: <12}</yellow> | <level>{message}</level>",
     level="INFO",
     colorize=True,
 )
@@ -39,7 +39,7 @@ class InterceptHandler(logging.Handler):
         # Extract context from logger name (e.g., "uvicorn.access" -> "uvicorn.access")
         context = record.name
 
-        logger.opt(depth=depth, exception=record.exc_info).bind(context=context).log(
+        logger.opt(depth=depth, exception=record.exc_info).bind(context=context, session_id="N/A").log(
             level, record.getMessage()
         )
 
@@ -59,14 +59,15 @@ def setup_logging():
         logging.getLogger(name).propagate = True
 
 
-def get_logger(context: str):
+def get_logger(context: str, session_id: str = "N/A"):
     """
-    Get a logger with a specific context.
+    Get a logger with a specific context and optional session ID.
 
     Args:
         context: The context/component name (e.g., "API", "Workflow", "Generate")
+        session_id: The session ID for tracking related logs (default: "N/A")
 
     Returns:
-        Logger instance bound with the context
+        Logger instance bound with the context and session_id
     """
-    return logger.bind(context=context)
+    return logger.bind(context=context, session_id=session_id)

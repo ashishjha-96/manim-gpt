@@ -7,9 +7,6 @@ from litellm import acompletion
 
 from utils.logger import get_logger
 
-# Create logger
-logger = get_logger("SubtitleGenerator")
-
 
 def check_ffmpeg_available() -> bool:
     """Check if ffmpeg is available in the system."""
@@ -196,7 +193,8 @@ async def generate_and_add_subtitles(
     prompt: str,
     temp_dir: str,
     model: str = "cerebras/zai-glm-4.6",
-    subtitle_style: Optional[str] = None
+    subtitle_style: Optional[str] = None,
+    session_id: str = "N/A"
 ) -> str:
     """
     Complete pipeline: generate narration, create SRT, add to video.
@@ -215,6 +213,7 @@ async def generate_and_add_subtitles(
     Raises:
         RuntimeError: If ffmpeg is not available
     """
+    logger = get_logger("SubtitleGenerator", session_id)
     logger.info("Starting subtitle generation pipeline")
     logger.info(f"Video path: {video_path}")
     logger.info(f"Model: {model}")

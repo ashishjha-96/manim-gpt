@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from utils.logger import get_logger
 
-
-logger = get_logger("Code Validator")
-
 class ValidationResult:
     """Result of code validation."""
     def __init__(self):
@@ -104,7 +101,8 @@ async def validate_manim_structure(code: str) -> ValidationResult:
 
 async def validate_manim_dry_run(
     code: str,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    session_id: str = "N/A"
 ) -> ValidationResult:
     """
     Run Manim with --dry_run flag to validate without rendering.
@@ -117,6 +115,7 @@ async def validate_manim_dry_run(
     Returns:
         ValidationResult with dry-run validation results
     """
+    logger = get_logger("Code Validator", session_id)
     result = ValidationResult()
     temp_dir = None
 
@@ -244,7 +243,8 @@ async def validate_manim_dry_run(
 async def validate_code(
     code: str,
     dry_run: bool = True,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    session_id: str = "N/A"
 ) -> Dict:
     """
     Comprehensive code validation combining all checks.
@@ -312,7 +312,7 @@ async def validate_code(
     # Step 4: Dry-run validation (optional, more thorough)
     if dry_run:
         emit_progress("dry_run", "Starting Manim dry-run validation")
-        dry_run_result = await validate_manim_dry_run(code, progress_callback)
+        dry_run_result = await validate_manim_dry_run(code, progress_callback, session_id)
         all_errors.extend(dry_run_result.errors)
         all_warnings.extend(dry_run_result.warnings)
         if dry_run_result.error_details:

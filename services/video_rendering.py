@@ -9,9 +9,6 @@ from typing import Optional
 from utils.constants import QUALITY_PRESETS
 from utils.logger import get_logger
 
-# Create logger
-logger = get_logger("VideoRendering")
-
 
 async def render_manim_video(
     code: str,
@@ -21,7 +18,8 @@ async def render_manim_video(
     include_subtitles: bool = False,
     prompt: Optional[str] = None,
     model: Optional[str] = "cerebras/zai-glm-4.6",
-    subtitle_style: Optional[str] = None
+    subtitle_style: Optional[str] = None,
+    session_id: str = "N/A"
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
@@ -39,6 +37,7 @@ async def render_manim_video(
     Returns:
         tuple: (video_path, temp_dir)
     """
+    logger = get_logger("VideoRendering", session_id)
     # Create temporary directory for the Manim project
     temp_dir = tempfile.mkdtemp(prefix="manim_")
 
@@ -172,7 +171,8 @@ async def render_manim_video(
                     prompt=prompt,
                     temp_dir=temp_dir,
                     model=model,
-                    subtitle_style=subtitle_style
+                    subtitle_style=subtitle_style,
+                    session_id=session_id
                 )
                 logger.info(f"Subtitle generation completed! New video path: {final_video_path}")
             except Exception as e:
