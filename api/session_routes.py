@@ -49,7 +49,8 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            max_iterations=request.max_iterations
+            max_iterations=request.max_iterations,
+            api_token=request.api_token
         )
 
         print(f"\n[API] Created session {session.session_id}")
@@ -61,7 +62,8 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            max_iterations=request.max_iterations
+            max_iterations=request.max_iterations,
+            api_token=request.api_token
         )
 
         # Update session with results
@@ -300,7 +302,8 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
                 model=request.model,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
-                max_iterations=request.max_iterations
+                max_iterations=request.max_iterations,
+                api_token=request.api_token
             )
 
             print(f"\n[API Streaming] Created session {session.session_id}")
@@ -312,7 +315,8 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
                 model=request.model,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
-                max_iterations=request.max_iterations
+                max_iterations=request.max_iterations,
+                api_token=request.api_token
             ):
                 # Update session with latest progress
                 if progress_data.get("event") == "progress" or progress_data.get("event") == "complete":

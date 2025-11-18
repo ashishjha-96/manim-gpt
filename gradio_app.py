@@ -76,6 +76,7 @@ async def iterative_generate_streaming(
     temperature: float,
     max_tokens: int,
     max_iterations: int,
+    api_token: str = None,
     progress=gr.Progress()
 ) -> Tuple[str, str, str, str, str]:
     """
@@ -100,16 +101,23 @@ async def iterative_generate_streaming(
             final_status = ""
             current_iter = 0
 
+            # Prepare request payload
+            payload = {
+                "prompt": prompt,
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "max_iterations": max_iterations,
+            }
+
+            # Add API token if provided
+            if api_token:
+                payload["api_token"] = api_token
+
             async with client.stream(
                 "POST",
                 f"{API_URL}/session/generate-stream",
-                json={
-                    "prompt": prompt,
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "max_iterations": max_iterations,
-                },
+                json=payload,
                 timeout=600.0
             ) as response:
                 if response.status_code != 200:
@@ -523,6 +531,12 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                             allow_custom_value=True,
                             scale=2
                         )
+                    iter_api_token = gr.Textbox(
+                        label="API Token (Optional)",
+                        placeholder="Enter your API token for the selected provider (optional - uses env vars if not provided)",
+                        type="password",
+                        lines=1
+                    )
                     iter_temperature = gr.Slider(
                         minimum=0.0,
                         maximum=2.0,
@@ -616,7 +630,8 @@ This mode uses LangGraph to iteratively generate and validate code, automaticall
                 iter_model,
                 iter_temperature,
                 iter_max_tokens,
-                iter_max_iterations
+                iter_max_iterations,
+                iter_api_token
             ],
             outputs=[iter_status, iter_code_output, iter_validation, iter_session_id, iter_log]
         )

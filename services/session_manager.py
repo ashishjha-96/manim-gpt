@@ -23,7 +23,8 @@ class SessionManager:
         model: str,
         temperature: float,
         max_tokens: int,
-        max_iterations: int = 5
+        max_iterations: int = 5,
+        api_token: Optional[str] = None
     ) -> SessionState:
         """
         Create a new session.
@@ -34,6 +35,7 @@ class SessionManager:
             temperature: Generation temperature
             max_tokens: Maximum tokens
             max_iterations: Maximum refinement iterations
+            api_token: API token for the selected provider
 
         Returns:
             New SessionState
@@ -48,7 +50,8 @@ class SessionManager:
             max_tokens=max_tokens,
             max_iterations=max_iterations,
             current_iteration=0,
-            status=IterationStatus.GENERATING
+            status=IterationStatus.GENERATING,
+            api_token=api_token
         )
 
         self._sessions[session_id] = session

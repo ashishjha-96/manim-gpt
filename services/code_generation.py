@@ -1,9 +1,18 @@
 from litellm import acompletion
+from typing import Optional
+import os
 
 
-async def generate_manim_code(prompt: str, model: str, max_tokens: int, temperature: float) -> tuple[str, str]:
+async def generate_manim_code(prompt: str, model: str, max_tokens: int, temperature: float, api_token: Optional[str] = None) -> tuple[str, str]:
     """
     Generate Manim animation code using LLM.
+
+    Args:
+        prompt: User's prompt for the animation
+        model: LLM model to use
+        max_tokens: Maximum tokens for generation
+        temperature: Temperature for generation
+        api_token: Optional API token for the provider
 
     Returns:
         tuple: (generated_code, model_used)
@@ -36,15 +45,22 @@ class GeneratedScene(Scene):
 
 Generate clean, working Manim code based on the user's request."""
 
-    response = await acompletion(
-        model=model,
-        messages=[
+    # Prepare acompletion parameters
+    completion_params = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+
+    # Add API key if provided
+    if api_token:
+        completion_params["api_key"] = api_token
+
+    response = await acompletion(**completion_params)
 
     generated_code = response.choices[0].message.content.strip()
 

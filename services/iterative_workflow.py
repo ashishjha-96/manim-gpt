@@ -29,6 +29,7 @@ class WorkflowState(TypedDict):
     iterations_history: list[CodeIteration]
     status: IterationStatus
     error_message: str | None
+    api_token: str | None
 
 
 async def generate_code_node(state: WorkflowState) -> dict:
@@ -105,15 +106,21 @@ ERRORS FOUND:
 Please generate corrected Manim code that fixes these issues."""
 
     # Call LLM
-    response = await acompletion(
-        model=state["model"],
-        messages=[
+    completion_params = {
+        "model": state["model"],
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ],
-        max_tokens=state["max_tokens"],
-        temperature=state["temperature"],
-    )
+        "max_tokens": state["max_tokens"],
+        "temperature": state["temperature"],
+    }
+
+    # Add API key if provided
+    if state.get("api_token"):
+        completion_params["api_key"] = state["api_token"]
+
+    response = await acompletion(**completion_params)
 
     generated_code = response.choices[0].message.content.strip()
 
@@ -294,7 +301,8 @@ async def run_iterative_generation(
     temperature: float,
     max_tokens: int,
     max_iterations: int = 5,
-    progress_callback: Optional[Callable[[dict], None]] = None
+    progress_callback: Optional[Callable[[dict], None]] = None,
+    api_token: Optional[str] = None
 ) -> WorkflowState:
     """
     Run the iterative code generation workflow.
@@ -307,6 +315,7 @@ async def run_iterative_generation(
         max_tokens: Maximum tokens for generation
         max_iterations: Maximum refinement iterations
         progress_callback: Optional callback for progress updates
+        api_token: Optional API token for the provider
 
     Returns:
         Final workflow state with results
@@ -328,7 +337,8 @@ async def run_iterative_generation(
         "validation_result": None,
         "iterations_history": [],
         "status": IterationStatus.GENERATING,
-        "error_message": None
+        "error_message": None,
+        "api_token": api_token
     }
 
     # Create and run workflow
@@ -373,7 +383,8 @@ async def run_iterative_generation_streaming(
     model: str,
     temperature: float,
     max_tokens: int,
-    max_iterations: int = 5
+    max_iterations: int = 5,
+    api_token: Optional[str] = None
 ):
     """
     Run the iterative code generation workflow with streaming.
@@ -386,6 +397,7 @@ async def run_iterative_generation_streaming(
         temperature: Generation temperature
         max_tokens: Maximum tokens for generation
         max_iterations: Maximum refinement iterations
+        api_token: Optional API token for the provider
 
     Yields:
         Progress updates as dictionaries
@@ -407,7 +419,8 @@ async def run_iterative_generation_streaming(
         "validation_result": None,
         "iterations_history": [],
         "status": IterationStatus.GENERATING,
-        "error_message": None
+        "error_message": None,
+        "api_token": api_token
     }
 
     # Create workflow

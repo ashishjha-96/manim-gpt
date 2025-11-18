@@ -1,7 +1,7 @@
 """
 Session models for iterative code generation and refinement.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
@@ -38,6 +38,7 @@ class SessionState(BaseModel):
     iterations: List[CodeIteration] = Field(default_factory=list)
     status: IterationStatus = IterationStatus.GENERATING
     final_code: Optional[str] = None
+    api_token: Optional[str] = Field(default=None, description="API token for the selected provider")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -49,6 +50,7 @@ class IterativeGenerationRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=2000, description="Maximum tokens for code generation")
     temperature: Optional[float] = Field(default=0.7, description="Temperature for code generation")
     max_iterations: Optional[int] = Field(default=5, description="Maximum number of refinement iterations")
+    api_token: Optional[str] = Field(default=None, description="API token for the selected provider")
 
 
 class IterativeGenerationResponse(BaseModel):
