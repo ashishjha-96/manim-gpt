@@ -54,6 +54,7 @@ class SessionState(BaseModel):
     iterations: List[CodeIteration] = Field(default_factory=list)
     status: IterationStatus = IterationStatus.GENERATING
     final_code: Optional[str] = None
+    rendered_video_path: Optional[str] = None  # Path to rendered video file
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

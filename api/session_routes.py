@@ -182,6 +182,10 @@ async def render_session_code(request: RenderRequest):
             subtitle_style=request.subtitle_style
         )
 
+        # Save video path to session
+        session.rendered_video_path = video_path
+        session_manager.update_session(session)
+
         return {
             "status": "success",
             "session_id": request.session_id,
@@ -204,12 +208,12 @@ async def render_session_code(request: RenderRequest):
 
 
 @router.get("/download")
-async def download_session_video(video_path: str):
+async def download_session_video(session_id: str):
     """
     Download a rendered video from a session.
 
     Args:
-        video_path: Path to the video file (from render endpoint)
+        session_id: Session ID (video must be rendered first)
 
     Returns:
         FileResponse with the video file
@@ -217,10 +221,27 @@ async def download_session_video(video_path: str):
     import os
     from pathlib import Path
 
+    # Get session
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found"
+        )
+
+    # Check if video has been rendered
+    if not session.rendered_video_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No rendered video found for session {session_id}. Render the video first using /session/render endpoint."
+        )
+
+    video_path = session.rendered_video_path
+
     if not os.path.exists(video_path):
         raise HTTPException(
             status_code=404,
-            detail=f"Video file not found at path: {video_path}"
+            detail=f"Video file not found at path: {video_path}. It may have been deleted."
         )
 
     # Determine media type
@@ -233,12 +254,73 @@ async def download_session_video(video_path: str):
     }
 
     media_type = media_types.get(ext, "application/octet-stream")
-    filename = f"manim_video{ext}"
+    filename = f"manim_video_{session_id[:8]}{ext}"
 
     return FileResponse(
         path=video_path,
         media_type=media_type,
         filename=filename
+    )
+
+
+@router.get("/stream")
+async def stream_session_video(session_id: str):
+    """
+    Stream a rendered video from a session for playback in the UI.
+
+    This endpoint supports HTTP range requests for seeking and progressive playback.
+
+    Args:
+        session_id: Session ID (video must be rendered first)
+
+    Returns:
+        StreamingResponse with the video file
+    """
+    import os
+    from pathlib import Path
+
+    # Get session
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found"
+        )
+
+    # Check if video has been rendered
+    if not session.rendered_video_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No rendered video found for session {session_id}. Render the video first using /session/render endpoint."
+        )
+
+    video_path = session.rendered_video_path
+
+    if not os.path.exists(video_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Video file not found at path: {video_path}. It may have been deleted."
+        )
+
+    # Determine media type
+    ext = Path(video_path).suffix.lower()
+    media_types = {
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".gif": "image/gif",
+        ".mov": "video/quicktime"
+    }
+
+    media_type = media_types.get(ext, "video/mp4")
+
+    # Return file response for streaming (supports range requests automatically)
+    return FileResponse(
+        path=video_path,
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache"
+        }
     )
 
 

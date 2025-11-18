@@ -142,7 +142,8 @@ function App() {
       );
 
       if (result.status === 'success') {
-        const url = manimAPI.getVideoDownloadUrl(sessionId);
+        // Use stream URL for video playback in the UI
+        const url = manimAPI.getVideoStreamUrl(sessionId);
         setVideoUrl(url);
         setVideoFormat(renderSettings.format);
       } else {

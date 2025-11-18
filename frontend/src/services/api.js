@@ -144,6 +144,13 @@ class ManimAPI {
   }
 
   /**
+   * Get video stream URL for playback in UI
+   */
+  getVideoStreamUrl(sessionId) {
+    return `${this.baseURL}/session/stream?session_id=${sessionId}`;
+  }
+
+  /**
    * List all sessions
    */
   async listSessions() {

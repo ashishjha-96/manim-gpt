@@ -7,7 +7,7 @@ import asyncio
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 class ValidationResult:
@@ -99,13 +99,17 @@ async def validate_manim_structure(code: str) -> ValidationResult:
     return result
 
 
-async def validate_manim_dry_run(code: str) -> ValidationResult:
+async def validate_manim_dry_run(
+    code: str,
+    progress_callback: Optional[Callable[[str, str], None]] = None
+) -> ValidationResult:
     """
     Run Manim with --dry_run flag to validate without rendering.
     This catches runtime errors like missing attributes, invalid animations, etc.
 
     Args:
         code: Python code to validate
+        progress_callback: Optional callback function(stage, message) for progress updates
 
     Returns:
         ValidationResult with dry-run validation results
@@ -113,7 +117,14 @@ async def validate_manim_dry_run(code: str) -> ValidationResult:
     result = ValidationResult()
     temp_dir = None
 
+    def emit_progress(stage: str, message: str):
+        """Helper to emit progress if callback is provided."""
+        if progress_callback:
+            progress_callback(stage, message)
+
     try:
+        emit_progress("setup", "Creating temporary validation environment")
+
         # Create temporary directory for validation
         temp_dir = tempfile.mkdtemp(prefix="manim_validate_")
         script_path = Path(temp_dir) / "validate_scene.py"
@@ -130,10 +141,14 @@ async def validate_manim_dry_run(code: str) -> ValidationResult:
         with open(script_path, "w") as f:
             f.write(code)
 
-        # Run manim with --dry_run flag
+        emit_progress("validation", "Starting Manim dry-run validation")
+
+        # Run manim with --dry_run flag and additional flags for better output
         cmd = [
             sys.executable, "-m", "manim",
             "--dry_run",
+            "--verbosity", "INFO",
+            "--progress_bar", "display",
             str(script_path),
             "GeneratedScene"
         ]
@@ -145,18 +160,55 @@ async def validate_manim_dry_run(code: str) -> ValidationResult:
             cwd=temp_dir
         )
 
-        stdout, stderr = await process.communicate()
-        stdout_str = stdout.decode() if stdout else ""
-        stderr_str = stderr.decode() if stderr else ""
+        # Stream output in real-time
+        stdout_lines = []
+        stderr_lines = []
+
+        async def read_stream(stream, is_stderr=False):
+            """Read stream line by line and emit progress."""
+            lines = stderr_lines if is_stderr else stdout_lines
+            stream_name = "stderr" if is_stderr else "stdout"
+
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+
+                decoded_line = line.decode().rstrip()
+                lines.append(decoded_line)
+
+                # Emit progress for important lines
+                if decoded_line:
+                    # Parse Manim output for progress indicators
+                    if "Animation" in decoded_line or "Rendering" in decoded_line:
+                        emit_progress("rendering", decoded_line)
+                    elif "%" in decoded_line or "frame" in decoded_line.lower():
+                        emit_progress("progress", decoded_line)
+                    elif "Error" in decoded_line or "Exception" in decoded_line:
+                        emit_progress("error", decoded_line)
+                    elif "Warning" in decoded_line:
+                        emit_progress("warning", decoded_line)
+                    else:
+                        emit_progress(stream_name, decoded_line)
+
+        # Read both streams concurrently
+        await asyncio.gather(
+            read_stream(process.stdout, is_stderr=False),
+            read_stream(process.stderr, is_stderr=True)
+        )
+
+        # Wait for process to complete
+        await process.wait()
+
+        stdout_str = "\n".join(stdout_lines)
+        stderr_str = "\n".join(stderr_lines)
 
         if process.returncode != 0:
             result.is_valid = False
-
-            # Parse error messages from stderr
-            error_lines = stderr_str.split('\n')
+            emit_progress("failed", "Manim validation failed")
 
             # Extract meaningful error messages
-            for line in error_lines:
+            for line in stderr_lines:
                 if "Error" in line or "Exception" in line or "Traceback" in line:
                     result.errors.append(line.strip())
 
@@ -167,28 +219,36 @@ async def validate_manim_dry_run(code: str) -> ValidationResult:
             result.error_details = f"STDOUT:\n{stdout_str}\n\nSTDERR:\n{stderr_str}"
         else:
             result.is_valid = True
+            emit_progress("completed", "Manim validation successful")
 
     except Exception as e:
         result.is_valid = False
         result.errors.append(f"Validation error: {str(e)}")
         result.error_details = str(e)
+        emit_progress("error", f"Validation error: {str(e)}")
 
     finally:
         # Clean up temp directory
         if temp_dir:
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
+            emit_progress("cleanup", "Cleaned up temporary files")
 
     return result
 
 
-async def validate_code(code: str, dry_run: bool = True) -> Dict:
+async def validate_code(
+    code: str,
+    dry_run: bool = True,
+    progress_callback: Optional[Callable[[str, str], None]] = None
+) -> Dict:
     """
     Comprehensive code validation combining all checks.
 
     Args:
         code: Python code to validate
         dry_run: Whether to run Manim dry-run validation (slower but more thorough)
+        progress_callback: Optional callback function(stage, message) for progress updates
 
     Returns:
         Dictionary with validation results
@@ -197,7 +257,13 @@ async def validate_code(code: str, dry_run: bool = True) -> Dict:
     all_warnings = []
     error_details = []
 
+    def emit_progress(stage: str, message: str):
+        """Helper to emit progress if callback is provided."""
+        if progress_callback:
+            progress_callback(stage, message)
+
     # Step 1: Syntax validation
+    emit_progress("syntax", "Validating Python syntax")
     syntax_result = await validate_python_syntax(code)
     all_errors.extend(syntax_result.errors)
     all_warnings.extend(syntax_result.warnings)
@@ -206,6 +272,7 @@ async def validate_code(code: str, dry_run: bool = True) -> Dict:
 
     # If syntax is invalid, stop here
     if not syntax_result.is_valid:
+        emit_progress("failed", "Syntax validation failed")
         return {
             "is_valid": False,
             "errors": all_errors,
@@ -213,16 +280,22 @@ async def validate_code(code: str, dry_run: bool = True) -> Dict:
             "error_details": "\n\n".join(error_details) if error_details else None
         }
 
+    emit_progress("syntax", "Syntax validation passed")
+
     # Step 2: Import validation
+    emit_progress("imports", "Checking Manim imports")
     import_result = await validate_manim_imports(code)
     all_warnings.extend(import_result.warnings)
+    emit_progress("imports", "Import validation completed")
 
     # Step 3: Structure validation
+    emit_progress("structure", "Validating Manim scene structure")
     structure_result = await validate_manim_structure(code)
     all_errors.extend(structure_result.errors)
     all_warnings.extend(structure_result.warnings)
 
     if not structure_result.is_valid:
+        emit_progress("failed", "Structure validation failed")
         return {
             "is_valid": False,
             "errors": all_errors,
@@ -230,15 +303,19 @@ async def validate_code(code: str, dry_run: bool = True) -> Dict:
             "error_details": "\n\n".join(error_details) if error_details else None
         }
 
+    emit_progress("structure", "Structure validation passed")
+
     # Step 4: Dry-run validation (optional, more thorough)
     if dry_run:
-        dry_run_result = await validate_manim_dry_run(code)
+        emit_progress("dry_run", "Starting Manim dry-run validation")
+        dry_run_result = await validate_manim_dry_run(code, progress_callback)
         all_errors.extend(dry_run_result.errors)
         all_warnings.extend(dry_run_result.warnings)
         if dry_run_result.error_details:
             error_details.append(f"Manim Dry-Run:\n{dry_run_result.error_details}")
 
         if not dry_run_result.is_valid:
+            emit_progress("failed", "Dry-run validation failed")
             return {
                 "is_valid": False,
                 "errors": all_errors,
@@ -247,6 +324,7 @@ async def validate_code(code: str, dry_run: bool = True) -> Dict:
             }
 
     # All validations passed
+    emit_progress("completed", "All validations passed successfully")
     return {
         "is_valid": True,
         "errors": all_errors,

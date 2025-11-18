@@ -85,7 +85,7 @@
         # Install frontend dependencies if needed
         npm-install = "cd frontend && npm install";
         # Start the FastAPI backend server
-        start-api = "uv run uvicorn main:app --host 0.0.0.0 --port 8000 &";
+        start-api = "uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload";
       };
     };
   };

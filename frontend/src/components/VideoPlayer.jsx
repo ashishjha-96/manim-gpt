@@ -1,4 +1,5 @@
 import { Download, Video } from 'lucide-react';
+import { manimAPI } from '../services/api';
 
 export default function VideoPlayer({ videoUrl, sessionId, format = 'mp4' }) {
   if (!videoUrl) {
@@ -16,6 +17,8 @@ export default function VideoPlayer({ videoUrl, sessionId, format = 'mp4' }) {
   }
 
   const isGif = format === 'gif';
+  // Use download URL for download button (different from stream URL used for playback)
+  const downloadUrl = sessionId ? manimAPI.getVideoDownloadUrl(sessionId) : videoUrl;
 
   return (
     <div className="card">
@@ -25,7 +28,7 @@ export default function VideoPlayer({ videoUrl, sessionId, format = 'mp4' }) {
           Rendered Video
         </h2>
         <a
-          href={videoUrl}
+          href={downloadUrl}
           download
           className="btn-secondary text-sm flex items-center gap-1"
         >
