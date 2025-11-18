@@ -17,6 +17,18 @@ class IterationStatus(str, Enum):
     MAX_ITERATIONS_REACHED = "max_iterations_reached"
 
 
+class RenderStatus(str, Enum):
+    """Status of video rendering process."""
+    QUEUED = "queued"
+    PREPARING = "preparing"
+    RENDERING_VIDEO = "rendering_video"
+    GENERATING_SUBTITLES = "generating_subtitles"
+    CREATING_SRT = "creating_srt"
+    STITCHING_SUBTITLES = "stitching_subtitles"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class GenerationMetrics(BaseModel):
     """Metrics for code generation."""
     time_taken: float = Field(..., description="Time taken in seconds")
@@ -29,6 +41,14 @@ class GenerationMetrics(BaseModel):
 class ValidationMetrics(BaseModel):
     """Metrics for code validation."""
     time_taken: float = Field(..., description="Time taken in seconds")
+
+
+class RenderProgress(BaseModel):
+    """Progress information for video rendering."""
+    status: RenderStatus
+    message: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    error: Optional[str] = None
 
 
 class CodeIteration(BaseModel):
@@ -55,6 +75,14 @@ class SessionState(BaseModel):
     status: IterationStatus = IterationStatus.GENERATING
     final_code: Optional[str] = None
     rendered_video_path: Optional[str] = None  # Path to rendered video file
+
+    # Render tracking
+    render_status: Optional[RenderStatus] = None
+    render_progress: List[RenderProgress] = Field(default_factory=list)
+    render_started_at: Optional[datetime] = None
+    render_completed_at: Optional[datetime] = None
+    render_error: Optional[str] = None
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -105,6 +133,7 @@ class RenderRequest(BaseModel):
     background_color: Optional[str] = Field(default=None, description="Background color")
     include_subtitles: bool = Field(default=False, description="Generate and add narration subtitles to the video")
     subtitle_style: Optional[str] = Field(default=None, description="Custom subtitle style in ASS format")
+    subtitle_font_size: int = Field(default=24, description="Font size for subtitles (default: 24). Ignored if subtitle_style is provided.", ge=8, le=72)
     model: Optional[str] = Field(default="cerebras/zai-glm-4.6", description="LLM model for subtitle generation")
 
 
@@ -122,3 +151,15 @@ class ManualCodeUpdateResponse(BaseModel):
     validation_result: Optional[dict] = None
     is_valid: bool = False
     message: str
+
+
+class RenderStatusResponse(BaseModel):
+    """Response for render status polling."""
+    session_id: str
+    render_status: RenderStatus
+    progress: List[RenderProgress]
+    video_path: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    elapsed_time: Optional[float] = None  # seconds since render started

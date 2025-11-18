@@ -132,8 +132,12 @@ async def validate_manim_dry_run(
         temp_dir = tempfile.mkdtemp(prefix="manim_validate_")
         script_path = Path(temp_dir) / "validate_scene.py"
 
-        # Create media directories that Manim expects
-        media_dir = Path(temp_dir) / "media"
+        # Use the main project's media directory to reuse TeX cache
+        # This significantly speeds up validation by avoiding recompilation of cached TeX
+        project_root = Path.cwd()
+        media_dir = project_root / "media"
+
+        # Create media directories if they don't exist
         media_dir.mkdir(exist_ok=True)
         (media_dir / "Tex").mkdir(exist_ok=True)
         (media_dir / "images").mkdir(exist_ok=True)
@@ -147,11 +151,13 @@ async def validate_manim_dry_run(
         emit_progress("validation", "Starting Manim dry-run validation")
 
         # Run manim with --dry_run flag and additional flags for better output
+        # Use --media_dir to point to the main project's media directory for TeX cache reuse
         cmd = [
             sys.executable, "-m", "manim",
             "--dry_run",
             "--verbosity", "INFO",
             "--progress_bar", "display",
+            "--media_dir", str(media_dir),
             str(script_path),
             "GeneratedScene"
         ]
@@ -160,7 +166,7 @@ async def validate_manim_dry_run(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=temp_dir
+            cwd=project_root
         )
 
         # Stream output in real-time

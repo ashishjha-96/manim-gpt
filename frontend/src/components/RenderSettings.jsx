@@ -15,16 +15,32 @@ const QUALITIES = [
   { value: '4k', label: '4K (2160p, 60fps)' },
 ];
 
+
 export default function RenderSettings({
   onRender,
   isRendering,
-  canRender
+  canRender,
+  renderStatus,
+  renderProgress
 }) {
   const [format, setFormat] = useState('mp4');
   const [quality, setQuality] = useState('medium');
   const [backgroundColor, setBackgroundColor] = useState('#000000');
   const [includeSubtitles, setIncludeSubtitles] = useState(true);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(24);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Format render status for display
+  const formatStatus = (status) => {
+    if (!status) return '';
+    return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Get latest progress message
+  const getLatestMessage = () => {
+    if (!renderProgress || renderProgress.length === 0) return null;
+    return renderProgress[renderProgress.length - 1].message;
+  };
 
   const handleRender = () => {
     onRender({
@@ -32,6 +48,8 @@ export default function RenderSettings({
       quality,
       background_color: backgroundColor,
       include_subtitles: includeSubtitles,
+      subtitle_style: null, // Use default style
+      subtitle_font_size: subtitleFontSize,
     });
   };
 
@@ -108,6 +126,29 @@ export default function RenderSettings({
           Add educational narration that explains the animation
         </p>
 
+        {/* Subtitle Font Size (shown when subtitles are enabled) */}
+        {includeSubtitles && (
+          <div className="ml-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Subtitle Font Size: {subtitleFontSize}px
+            </label>
+            <input
+              type="range"
+              min="12"
+              max="48"
+              step="2"
+              value={subtitleFontSize}
+              onChange={(e) => setSubtitleFontSize(parseInt(e.target.value))}
+              disabled={isRendering}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>Small (12px)</span>
+              <span>Large (48px)</span>
+            </div>
+          </div>
+        )}
+
         {/* Advanced Settings */}
         <div>
           <button
@@ -147,6 +188,23 @@ export default function RenderSettings({
             </div>
           )}
         </div>
+
+        {/* Render Progress */}
+        {isRendering && renderStatus && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-medium text-blue-900">
+                {formatStatus(renderStatus)}
+              </span>
+            </div>
+            {getLatestMessage() && (
+              <p className="text-xs text-blue-700 ml-6">
+                {getLatestMessage()}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Render Button */}
         <button

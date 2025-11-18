@@ -112,18 +112,23 @@ class ManimAPI {
   }
 
   /**
-   * Render video from session
+   * Render video from session (async - returns immediately, use pollRenderStatus to track progress)
    */
-  async renderVideo(sessionId, format = 'mp4', quality = 'medium', backgroundColor = null, includeSubtitles = true) {
+  async renderVideo(sessionId, format = 'mp4', quality = 'medium', backgroundColor = null, includeSubtitles = true, subtitleFontSize = 24, subtitleStyle = null) {
     const body = {
       session_id: sessionId,
       format,
       quality,
       include_subtitles: includeSubtitles,
+      subtitle_font_size: subtitleFontSize,
     };
 
     if (backgroundColor) {
       body.background_color = backgroundColor;
+    }
+
+    if (subtitleStyle) {
+      body.subtitle_style = subtitleStyle;
     }
 
     const response = await fetch(`${this.baseURL}/session/render`, {
@@ -134,6 +139,39 @@ class ManimAPI {
       body: JSON.stringify(body),
     });
     return response.json();
+  }
+
+  /**
+   * Get render status for a session
+   */
+  async getRenderStatus(sessionId) {
+    const response = await fetch(`${this.baseURL}/session/render-status/${sessionId}`);
+    return response.json();
+  }
+
+  /**
+   * Poll render status until completion or failure
+   * @param {string} sessionId - Session ID
+   * @param {Function} onProgress - Callback for progress updates (receives RenderStatusResponse)
+   * @param {number} pollInterval - Polling interval in milliseconds (default: 4000)
+   * @returns {Promise<Object>} - Final render status
+   */
+  async pollRenderStatus(sessionId, onProgress, pollInterval = 4000) {
+    while (true) {
+      const status = await this.getRenderStatus(sessionId);
+
+      if (onProgress) {
+        onProgress(status);
+      }
+
+      // Check if render is complete
+      if (status.render_status === 'completed' || status.render_status === 'failed') {
+        return status;
+      }
+
+      // Wait before polling again
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
   }
 
   /**

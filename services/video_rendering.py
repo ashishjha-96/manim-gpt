@@ -4,7 +4,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from utils.constants import QUALITY_PRESETS
 from utils.logger import get_logger
@@ -21,7 +21,9 @@ async def render_manim_video(
     include_subtitles: bool = False,
     prompt: Optional[str] = None,
     model: Optional[str] = "cerebras/zai-glm-4.6",
-    subtitle_style: Optional[str] = None
+    subtitle_style: Optional[str] = None,
+    subtitle_font_size: int = 24,
+    progress_callback: Optional[Callable[[str, str], None]] = None
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
@@ -34,15 +36,23 @@ async def render_manim_video(
         include_subtitles: Whether to generate and add subtitles
         prompt: User's original prompt (needed for subtitle generation)
         model: LLM model for subtitle generation
-        subtitle_style: Optional custom subtitle style
+        subtitle_style: Optional custom subtitle style (ASS format). If provided, subtitle_font_size is ignored.
+        subtitle_font_size: Font size for subtitles (default: 24)
+        progress_callback: Optional callback function(status, message) for progress updates
 
     Returns:
         tuple: (video_path, temp_dir)
     """
+    def emit_progress(status: str, message: str):
+        """Helper to emit progress if callback is provided."""
+        if progress_callback:
+            progress_callback(status, message)
+
     # Create temporary directory for the Manim project
     temp_dir = tempfile.mkdtemp(prefix="manim_")
 
     try:
+        emit_progress("preparing", "Setting up rendering environment")
         # Set up fontconfig to find fonts in Nix store
         # This fixes the "white boxes" issue where text doesn't render
         fontconfig_dir = Path(temp_dir) / "fontconfig"
@@ -97,6 +107,7 @@ async def render_manim_video(
         env['FONTCONFIG_FILE'] = str(fontconfig_path)
 
         # Run manim rendering
+        emit_progress("rendering_video", "Rendering Manim animation")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -105,11 +116,39 @@ async def render_manim_video(
             env=env
         )
 
-        stdout, stderr = await process.communicate()
+        # Stream output in real-time
+        stdout_lines = []
+        stderr_lines = []
+
+        async def read_stream(stream, is_stderr=False):
+            """Read stream line by line and log output."""
+            lines = stderr_lines if is_stderr else stdout_lines
+
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+
+                decoded_line = line.decode().rstrip()
+                lines.append(decoded_line)
+
+                # Log all output
+                if decoded_line:
+                    logger.info(decoded_line)
+
+        # Read both streams concurrently
+        await asyncio.gather(
+            read_stream(process.stdout, is_stderr=False),
+            read_stream(process.stderr, is_stderr=True)
+        )
+
+        # Wait for process to complete
+        await process.wait()
+        emit_progress("rendering_video", "Manim rendering completed")
 
         # Decode output for debugging
-        stdout_str = stdout.decode() if stdout else ""
-        stderr_str = stderr.decode() if stderr else ""
+        stdout_str = "\n".join(stdout_lines)
+        stderr_str = "\n".join(stderr_lines)
 
         if process.returncode != 0:
             raise Exception(f"Manim rendering failed (code {process.returncode}):\nSTDOUT: {stdout_str}\nSTDERR: {stderr_str}")
@@ -161,29 +200,46 @@ async def render_manim_video(
         # Add subtitles if requested
         final_video_path = str(video_path)
         if include_subtitles and prompt:
+            emit_progress("generating_subtitles", "Generating narration segments")
             logger.info(f"Subtitle generation requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
             logger.info(f"Original video path: {video_path}")
             from services.subtitle_generator import generate_and_add_subtitles
             try:
                 logger.info("Starting subtitle generation...")
+                # Create a wrapper callback to map subtitle progress to our progress callback
+                def subtitle_progress_callback(stage: str, message: str):
+                    # Map subtitle generator stages to render statuses
+                    stage_mapping = {
+                        "narration": "generating_subtitles",
+                        "srt": "creating_srt",
+                        "ffmpeg": "stitching_subtitles"
+                    }
+                    mapped_stage = stage_mapping.get(stage, "generating_subtitles")
+                    emit_progress(mapped_stage, message)
+
                 final_video_path = await generate_and_add_subtitles(
                     video_path=str(video_path),
                     code=code,
                     prompt=prompt,
                     temp_dir=temp_dir,
                     model=model,
-                    subtitle_style=subtitle_style
+                    subtitle_style=subtitle_style,
+                    font_size=subtitle_font_size,
+                    progress_callback=subtitle_progress_callback
                 )
                 logger.info(f"Subtitle generation completed! New video path: {final_video_path}")
+                emit_progress("stitching_subtitles", "Subtitles added successfully")
             except Exception as e:
                 # If subtitle generation fails, log but continue with original video
                 logger.error(f"Subtitle generation failed: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
+                emit_progress("generating_subtitles", f"Subtitle generation failed: {str(e)}")
                 # Return original video without subtitles
         else:
             logger.info(f"Subtitles NOT requested: include_subtitles={include_subtitles}, prompt present={bool(prompt)}")
 
+        emit_progress("completed", "Video rendering completed successfully")
         return final_video_path, temp_dir
 
     except Exception as e:

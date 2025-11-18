@@ -26,6 +26,8 @@ function App() {
   const [isRendering, setIsRendering] = useState(false);
   const [videoUrl, setVideoUrl] = useState(null);
   const [videoFormat, setVideoFormat] = useState('mp4');
+  const [renderProgress, setRenderProgress] = useState([]);
+  const [renderStatus, setRenderStatus] = useState(null);
 
   // Code Update State
   const [isValidating, setIsValidating] = useState(false);
@@ -132,23 +134,46 @@ function App() {
     try {
       setIsRendering(true);
       setVideoUrl(null);
+      setRenderProgress([]);
+      setRenderStatus('queued');
 
-      const result = await manimAPI.renderVideo(
+      // Start the render (returns immediately)
+      const queueResult = await manimAPI.renderVideo(
         sessionId,
         renderSettings.format,
         renderSettings.quality,
         renderSettings.background_color,
-        renderSettings.include_subtitles
+        renderSettings.include_subtitles,
+        renderSettings.subtitle_font_size || 24,
+        renderSettings.subtitle_style || null
       );
 
-      if (result.status === 'success') {
+      if (queueResult.status !== 'queued') {
+        console.error('Failed to queue render:', queueResult);
+        alert('Failed to start render: ' + (queueResult.message || 'Unknown error'));
+        setIsRendering(false);
+        return;
+      }
+
+      // Poll for render status with progress updates
+      const finalStatus = await manimAPI.pollRenderStatus(sessionId, (statusUpdate) => {
+        setRenderStatus(statusUpdate.render_status);
+        setRenderProgress(statusUpdate.progress || []);
+
+        // Log progress for debugging
+        console.log('Render status:', statusUpdate.render_status, 'Progress:', statusUpdate.progress);
+      });
+
+      // Handle completion
+      if (finalStatus.render_status === 'completed') {
         // Use stream URL for video playback in the UI
         const url = manimAPI.getVideoStreamUrl(sessionId);
         setVideoUrl(url);
         setVideoFormat(renderSettings.format);
-      } else {
-        console.error('Rendering failed:', result.message);
-        alert('Rendering failed: ' + result.message);
+        console.log('Rendering completed successfully!');
+      } else if (finalStatus.render_status === 'failed') {
+        console.error('Rendering failed:', finalStatus.error);
+        alert('Rendering failed: ' + (finalStatus.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Rendering error:', error);
@@ -211,12 +236,19 @@ function App() {
                 onRender={handleRender}
                 isRendering={isRendering}
                 canRender={canRender}
+                renderStatus={renderStatus}
+                renderProgress={renderProgress}
               />
             )}
           </div>
 
           {/* Middle Column - Code & Progress */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Iteration Logs */}
+            {iterations.length > 0 && (
+              <IterationLogs iterations={iterations} />
+            )}
+
             {/* Progress */}
             {sessionId && (
               <ProgressView
@@ -243,11 +275,6 @@ function App() {
                 sessionId={sessionId}
                 format={videoFormat}
               />
-            )}
-
-            {/* Iteration Logs */}
-            {iterations.length > 0 && (
-              <IterationLogs iterations={iterations} />
             )}
           </div>
         </div>

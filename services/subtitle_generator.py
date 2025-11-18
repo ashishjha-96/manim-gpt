@@ -2,7 +2,7 @@ import asyncio
 import re
 import shutil
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Callable
 from litellm import acompletion
 
 from utils.logger import get_logger
@@ -137,7 +137,8 @@ async def add_subtitles_to_video(
     video_path: str,
     srt_path: str,
     output_path: str,
-    subtitle_style: Optional[str] = None
+    subtitle_style: Optional[str] = None,
+    font_size: int = 24
 ) -> None:
     """
     Add subtitles to video using FFmpeg.
@@ -146,7 +147,8 @@ async def add_subtitles_to_video(
         video_path: Path to input video
         srt_path: Path to SRT subtitle file
         output_path: Path for output video with subtitles
-        subtitle_style: Optional custom subtitle style (ASS format)
+        subtitle_style: Optional custom subtitle style (ASS format). If provided, font_size is ignored.
+        font_size: Font size for subtitles (default: 24). Only used if subtitle_style is None.
 
     Raises:
         RuntimeError: If ffmpeg is not available in the system
@@ -160,9 +162,9 @@ async def add_subtitles_to_video(
         )
     # Default subtitle style - white text with black outline, bottom center
     if subtitle_style is None:
-        # ASS subtitle style parameters
+        # ASS subtitle style parameters with configurable font size
         subtitle_style = (
-            "FontName=DejaVu Sans,FontSize=24,PrimaryColour=&H00FFFFFF,"
+            f"FontName=DejaVu Sans,FontSize={font_size},PrimaryColour=&H00FFFFFF,"
             "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,"
             "Alignment=2,MarginV=30"
         )
@@ -196,7 +198,9 @@ async def generate_and_add_subtitles(
     prompt: str,
     temp_dir: str,
     model: str = "cerebras/zai-glm-4.6",
-    subtitle_style: Optional[str] = None
+    subtitle_style: Optional[str] = None,
+    font_size: int = 24,
+    progress_callback: Optional[Callable[[str, str], None]] = None
 ) -> str:
     """
     Complete pipeline: generate narration, create SRT, add to video.
@@ -207,7 +211,9 @@ async def generate_and_add_subtitles(
         prompt: User's original prompt
         temp_dir: Temporary directory for intermediate files
         model: LLM model to use for narration generation
-        subtitle_style: Optional custom subtitle style
+        subtitle_style: Optional custom subtitle style (ASS format). If provided, font_size is ignored.
+        font_size: Font size for subtitles (default: 24). Only used if subtitle_style is None.
+        progress_callback: Optional callback function(stage, message) for progress updates
 
     Returns:
         Path to video with subtitles
@@ -215,6 +221,11 @@ async def generate_and_add_subtitles(
     Raises:
         RuntimeError: If ffmpeg is not available
     """
+    def emit_progress(stage: str, message: str):
+        """Helper to emit progress if callback is provided."""
+        if progress_callback:
+            progress_callback(stage, message)
+
     logger.info("Starting subtitle generation pipeline")
     logger.info(f"Video path: {video_path}")
     logger.info(f"Model: {model}")
@@ -230,17 +241,22 @@ async def generate_and_add_subtitles(
     temp_path = Path(temp_dir)
 
     # Generate narration segments
+    emit_progress("narration", "Generating narration segments using LLM")
     logger.info("Generating narration segments using LLM...")
     segments = await generate_narration_from_code(code, prompt, model=model)
     logger.info(f"Generated {len(segments)} narration segments")
+    emit_progress("narration", f"Generated {len(segments)} narration segments")
 
     # Create SRT file
+    emit_progress("srt", "Creating SRT subtitle file")
     srt_path = temp_path / "subtitles.srt"
     logger.info(f"Creating SRT file at: {srt_path}")
     create_srt_file(segments, str(srt_path))
     logger.info("SRT file created successfully")
+    emit_progress("srt", "SRT file created successfully")
 
     # Add subtitles to video
+    emit_progress("ffmpeg", "Adding subtitles to video using FFmpeg")
     video_path_obj = Path(video_path)
     output_path = video_path_obj.parent / f"{video_path_obj.stem}_subtitled{video_path_obj.suffix}"
     logger.info("Adding subtitles to video using FFmpeg...")
@@ -251,7 +267,8 @@ async def generate_and_add_subtitles(
         video_path,
         str(srt_path),
         str(output_path),
-        subtitle_style
+        subtitle_style,
+        font_size
     )
 
     logger.info("Subtitles added successfully!")

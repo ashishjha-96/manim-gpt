@@ -1,11 +1,12 @@
 """
 API routes for iterative session-based code generation.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
 import traceback
 import shutil
 import json
+import asyncio
 from datetime import datetime
 
 from models.session import (
@@ -14,6 +15,9 @@ from models.session import (
     SessionStatusResponse,
     RenderRequest,
     IterationStatus,
+    RenderStatus,
+    RenderProgress,
+    RenderStatusResponse,
     CodeIteration,
     ManualCodeUpdateRequest,
     ManualCodeUpdateResponse
@@ -28,6 +32,108 @@ from utils.logger import get_logger
 logger = get_logger("API")
 
 router = APIRouter(prefix="/session", tags=["session"])
+
+
+async def _render_video_background(
+    session_id: str,
+    code: str,
+    output_format: str,
+    quality: str,
+    background_color: str | None,
+    include_subtitles: bool,
+    prompt: str,
+    model: str,
+    subtitle_style: str | None,
+    subtitle_font_size: int
+):
+    """Background task to render video and update session with progress."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        logger.error(f"Session {session_id} not found during background render")
+        return
+
+    temp_dir = None
+
+    def update_progress(status: str, message: str):
+        """Update session with render progress."""
+        nonlocal session
+        try:
+            # Map status string to RenderStatus enum
+            try:
+                render_status = RenderStatus(status)
+            except ValueError:
+                # If status doesn't match enum, default to rendering_video
+                render_status = RenderStatus.RENDERING_VIDEO
+
+            session.render_status = render_status
+            session.render_progress.append(RenderProgress(
+                status=render_status,
+                message=message,
+                timestamp=datetime.utcnow()
+            ))
+            session_manager.update_session(session)
+            logger.info(f"[Render {session_id}] {status}: {message}")
+        except Exception as e:
+            logger.error(f"Error updating progress: {e}")
+
+    try:
+        # Mark render as started
+        session.render_status = RenderStatus.PREPARING
+        session.render_started_at = datetime.utcnow()
+        session.render_progress = [RenderProgress(
+            status=RenderStatus.PREPARING,
+            message="Starting video render",
+            timestamp=datetime.utcnow()
+        )]
+        session_manager.update_session(session)
+
+        # Render the video with progress tracking
+        video_path, temp_dir = await render_manim_video(
+            code=code,
+            output_format=output_format,
+            quality=quality,
+            background_color=background_color,
+            include_subtitles=include_subtitles,
+            prompt=prompt,
+            model=model,
+            subtitle_style=subtitle_style,
+            subtitle_font_size=subtitle_font_size,
+            progress_callback=update_progress
+        )
+
+        # Update session with success
+        session.rendered_video_path = video_path
+        session.render_status = RenderStatus.COMPLETED
+        session.render_completed_at = datetime.utcnow()
+        session.render_progress.append(RenderProgress(
+            status=RenderStatus.COMPLETED,
+            message="Video rendered successfully",
+            timestamp=datetime.utcnow()
+        ))
+        session_manager.update_session(session)
+
+        logger.info(f"[Render {session_id}] Completed successfully: {video_path}")
+
+    except Exception as e:
+        # Update session with error
+        error_msg = str(e)
+        logger.error(f"[Render {session_id}] Failed: {error_msg}")
+        logger.debug(traceback.format_exc())
+
+        session.render_status = RenderStatus.FAILED
+        session.render_error = error_msg
+        session.render_completed_at = datetime.utcnow()
+        session.render_progress.append(RenderProgress(
+            status=RenderStatus.FAILED,
+            message=f"Render failed: {error_msg}",
+            timestamp=datetime.utcnow(),
+            error=error_msg
+        ))
+        session_manager.update_session(session)
+
+        # Clean up temp directory on error
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.post("/generate", response_model=IterativeGenerationResponse)
@@ -143,15 +249,19 @@ async def get_session_status(session_id: str):
 
 
 @router.post("/render")
-async def render_session_code(request: RenderRequest):
+async def render_session_code(request: RenderRequest, background_tasks: BackgroundTasks):
     """
-    Render the validated code from a successful session.
+    Start rendering the validated code from a successful session (async).
+
+    This endpoint returns immediately with a "queued" status. The UI should poll
+    /session/render-status/{session_id} to track progress.
 
     Args:
         request: RenderRequest with session_id and rendering options
+        background_tasks: FastAPI background tasks
 
     Returns:
-        Video path and metadata
+        Status indicating render has been queued
     """
     session = session_manager.get_session(request.session_id)
 
@@ -167,44 +277,84 @@ async def render_session_code(request: RenderRequest):
             detail="Session has no validated code to render. Generate code first."
         )
 
-    temp_dir = None
-
-    try:
-        # Render the video
-        video_path, temp_dir = await render_manim_video(
-            code=session.final_code,
-            output_format=request.format,
-            quality=request.quality,
-            background_color=request.background_color,
-            include_subtitles=request.include_subtitles,
-            prompt=session.prompt,
-            model=request.model,
-            subtitle_style=request.subtitle_style
-        )
-
-        # Save video path to session
-        session.rendered_video_path = video_path
-        session_manager.update_session(session)
-
-        return {
-            "status": "success",
-            "session_id": request.session_id,
-            "video_path": video_path,
-            "format": request.format,
-            "quality": request.quality,
-            "message": "Video rendered successfully! Use /session/download endpoint to retrieve it."
-        }
-
-    except Exception as e:
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-        logger.error(f"Error rendering video: {str(e)}")
-        logger.debug(traceback.format_exc())
+    # Check if already rendering
+    if session.render_status and session.render_status not in [RenderStatus.COMPLETED, RenderStatus.FAILED]:
         raise HTTPException(
-            status_code=500,
-            detail=f"Error rendering video: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            status_code=409,
+            detail=f"Render already in progress with status: {session.render_status}"
         )
+
+    # Initialize render status
+    session.render_status = RenderStatus.QUEUED
+    session.render_progress = [RenderProgress(
+        status=RenderStatus.QUEUED,
+        message="Render job queued",
+        timestamp=datetime.utcnow()
+    )]
+    session.render_started_at = None
+    session.render_completed_at = None
+    session.render_error = None
+    session_manager.update_session(session)
+
+    # Start background render task
+    background_tasks.add_task(
+        _render_video_background,
+        session_id=request.session_id,
+        code=session.final_code,
+        output_format=request.format,
+        quality=request.quality,
+        background_color=request.background_color,
+        include_subtitles=request.include_subtitles,
+        prompt=session.prompt,
+        model=request.model,
+        subtitle_style=request.subtitle_style,
+        subtitle_font_size=request.subtitle_font_size
+    )
+
+    return {
+        "status": "queued",
+        "session_id": request.session_id,
+        "message": "Render job queued. Poll /session/render-status/{session_id} for progress."
+    }
+
+
+@router.get("/render-status/{session_id}", response_model=RenderStatusResponse)
+async def get_render_status(session_id: str):
+    """
+    Get the current render status for a session.
+
+    Use this endpoint to poll for render progress after calling /session/render.
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        RenderStatusResponse with current render status and progress
+    """
+    session = session_manager.get_session(session_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found"
+        )
+
+    # Calculate elapsed time if render has started
+    elapsed_time = None
+    if session.render_started_at:
+        end_time = session.render_completed_at or datetime.utcnow()
+        elapsed_time = (end_time - session.render_started_at).total_seconds()
+
+    return RenderStatusResponse(
+        session_id=session_id,
+        render_status=session.render_status or RenderStatus.QUEUED,
+        progress=session.render_progress,
+        video_path=session.rendered_video_path,
+        started_at=session.render_started_at,
+        completed_at=session.render_completed_at,
+        error=session.render_error,
+        elapsed_time=elapsed_time
+    )
 
 
 @router.get("/download")
