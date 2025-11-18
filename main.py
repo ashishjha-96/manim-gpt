@@ -1,14 +1,26 @@
 from fastapi import FastAPI
 import litellm
 from dotenv import load_dotenv
+import os
 
 from api import code_router, video_router, model_router, session_router
+from utils.logger import get_logger
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Enable LiteLLM debug mode
-litellm.set_verbose = True
+# Create logger
+logger = get_logger("Main")
+
+# Configure LiteLLM logging
+# Set to DEBUG for verbose logging, or leave as INFO for cleaner output
+litellm_log_level = os.getenv("LITELLM_LOG_LEVEL", "INFO")
+os.environ['LITELLM_LOG'] = litellm_log_level
+
+# Disable the deprecated set_verbose (we use LITELLM_LOG env var instead)
+litellm.set_verbose = False
+
+logger.info(f"LiteLLM logging level set to: {litellm_log_level}")
 
 app = FastAPI(title="Manim GPT - AI-Powered Video Generation API")
 
@@ -48,4 +60,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting Manim GPT API server on http://0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -12,6 +12,16 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from litellm import acompletion
 from services.code_validator import validate_code
 from models.session import IterationStatus, CodeIteration
+from utils.logger import get_logger
+
+# Create loggers for different workflow components
+logger_generate = get_logger("Generate")
+logger_validate = get_logger("Validate")
+logger_decide = get_logger("Decide")
+logger_complete = get_logger("Complete")
+logger_max_iter = get_logger("MaxIterations")
+logger_refine = get_logger("Refine")
+logger_workflow = get_logger("Workflow")
 
 
 class WorkflowState(TypedDict):
@@ -37,7 +47,7 @@ async def generate_code_node(state: WorkflowState) -> dict:
     For first iteration, uses the original prompt.
     For refinements, includes error feedback.
     """
-    print(f"[Generate Node] Iteration {state['current_iteration'] + 1}")
+    logger_generate.info(f"Iteration {state['current_iteration'] + 1}")
 
     # Build system prompt
     system_prompt = """You are an expert Manim (Mathematical Animation Engine) programmer.
@@ -139,7 +149,7 @@ Please generate corrected Manim code that fixes these issues."""
 
     generated_code = '\n'.join(cleaned_lines).strip()
 
-    print(f"[Generate Node] Generated {len(generated_code)} characters of code")
+    logger_generate.info(f"Generated {len(generated_code)} characters of code")
 
     return {
         "generated_code": generated_code,
@@ -153,7 +163,7 @@ async def validate_code_node(state: WorkflowState) -> dict:
     Node that validates the generated Manim code.
     Runs syntax checks and Manim dry-run.
     """
-    print(f"[Validate Node] Validating code for iteration {state['current_iteration'] + 1}")
+    logger_validate.info(f"Validating code for iteration {state['current_iteration'] + 1}")
 
     code = state["generated_code"]
     validation_result = await validate_code(code, dry_run=True)
@@ -171,9 +181,9 @@ async def validate_code_node(state: WorkflowState) -> dict:
     iterations_history = state["iterations_history"].copy()
     iterations_history.append(iteration)
 
-    print(f"[Validate Node] Validation result: {validation_result['is_valid']}")
+    logger_validate.info(f"Validation result: {validation_result['is_valid']}")
     if not validation_result["is_valid"]:
-        print(f"[Validate Node] Errors: {validation_result['errors']}")
+        logger_validate.warning(f"Errors: {validation_result['errors']}")
 
     return {
         "validation_result": validation_result,
@@ -194,16 +204,16 @@ def decide_next_step(state: WorkflowState) -> str:
     current_iter = state["current_iteration"]
     max_iter = state["max_iterations"]
 
-    print(f"[Decide Node] Iteration {current_iter}/{max_iter}, Valid: {validation['is_valid']}")
+    logger_decide.info(f"Iteration {current_iter}/{max_iter}, Valid: {validation['is_valid']}")
 
     if validation["is_valid"]:
-        print("[Decide Node] Code is valid! Going to complete.")
+        logger_decide.success("Code is valid! Going to complete.")
         return "complete"
     elif current_iter >= max_iter:
-        print("[Decide Node] Max iterations reached. Stopping.")
+        logger_decide.warning("Max iterations reached. Stopping.")
         return "max_iterations"
     else:
-        print("[Decide Node] Code has errors. Going to refine.")
+        logger_decide.info("Code has errors. Going to refine.")
         return "refine"
 
 
@@ -211,7 +221,7 @@ async def complete_node(state: WorkflowState) -> dict:
     """
     Node for successful completion.
     """
-    print("[Complete Node] Code generation successful!")
+    logger_complete.success("Code generation successful!")
     return {
         "status": IterationStatus.SUCCESS,
         "error_message": None
@@ -222,7 +232,7 @@ async def max_iterations_node(state: WorkflowState) -> dict:
     """
     Node for when max iterations is reached without success.
     """
-    print("[Max Iterations Node] Maximum iterations reached without valid code.")
+    logger_max_iter.warning("Maximum iterations reached without valid code.")
     return {
         "status": IterationStatus.MAX_ITERATIONS_REACHED,
         "error_message": "Maximum iterations reached. Code still has validation errors."
@@ -234,7 +244,7 @@ async def refine_node(state: WorkflowState) -> dict:
     Node that prepares for refinement by updating status.
     The actual refinement happens in the next generate_code_node call.
     """
-    print("[Refine Node] Preparing for refinement...")
+    logger_refine.info("Preparing for refinement...")
     return {
         "status": IterationStatus.REFINING
     }
@@ -311,8 +321,8 @@ async def run_iterative_generation(
     Returns:
         Final workflow state with results
     """
-    print(f"\n[Workflow] Starting iterative generation for session {session_id}")
-    print(f"[Workflow] Model: {model}, Max iterations: {max_iterations}")
+    logger_workflow.info(f"Starting iterative generation for session {session_id}")
+    logger_workflow.info(f"Model: {model}, Max iterations: {max_iterations}")
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -361,8 +371,8 @@ async def run_iterative_generation(
         # Execute workflow normally without streaming
         final_state = await workflow.ainvoke(initial_state)
 
-    print(f"\n[Workflow] Completed with status: {final_state['status']}")
-    print(f"[Workflow] Total iterations: {final_state['current_iteration']}")
+    logger_workflow.success(f"Completed with status: {final_state['status']}")
+    logger_workflow.info(f"Total iterations: {final_state['current_iteration']}")
 
     return final_state
 
@@ -390,8 +400,8 @@ async def run_iterative_generation_streaming(
     Yields:
         Progress updates as dictionaries
     """
-    print(f"\n[Workflow Streaming] Starting iterative generation for session {session_id}")
-    print(f"[Workflow Streaming] Model: {model}, Max iterations: {max_iterations}")
+    logger_workflow.info(f"[Streaming] Starting iterative generation for session {session_id}")
+    logger_workflow.info(f"[Streaming] Model: {model}, Max iterations: {max_iterations}")
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -487,5 +497,5 @@ async def run_iterative_generation_streaming(
             "message": "Workflow completed successfully!"
         }
 
-    print(f"\n[Workflow Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
-    print(f"[Workflow Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")
+    logger_workflow.success(f"[Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
+    logger_workflow.info(f"[Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")

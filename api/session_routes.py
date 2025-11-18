@@ -22,6 +22,10 @@ from services.session_manager import session_manager
 from services.iterative_workflow import run_iterative_generation, run_iterative_generation_streaming
 from services.video_rendering import render_manim_video
 from services.code_validator import validate_code
+from utils.logger import get_logger
+
+# Create logger for API routes
+logger = get_logger("API")
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -52,7 +56,7 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             max_iterations=request.max_iterations
         )
 
-        print(f"\n[API] Created session {session.session_id}")
+        logger.info(f"Created session {session.session_id}")
 
         # Run iterative workflow
         workflow_state = await run_iterative_generation(
@@ -99,6 +103,8 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
         )
 
     except Exception as e:
+        logger.error(f"Error in iterative generation: {str(e)}")
+        logger.debug(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error in iterative generation: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
@@ -184,6 +190,8 @@ async def render_session_code(request: RenderRequest):
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+        logger.error(f"Error rendering video: {str(e)}")
+        logger.debug(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Error rendering video: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
@@ -303,7 +311,7 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
                 max_iterations=request.max_iterations
             )
 
-            print(f"\n[API Streaming] Created session {session.session_id}")
+            logger.info(f"[Streaming] Created session {session.session_id}")
 
             # Stream workflow progress
             async for progress_data in run_iterative_generation_streaming(
@@ -345,6 +353,8 @@ async def start_iterative_generation_stream(request: IterativeGenerationRequest)
             yield f"data: {json.dumps({'event': 'done', 'session_id': session.session_id})}\n\n"
 
         except Exception as e:
+            logger.error(f"[Streaming] Error: {str(e)}")
+            logger.debug(traceback.format_exc())
             error_data = {
                 "event": "error",
                 "error": str(e),
