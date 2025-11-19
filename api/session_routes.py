@@ -334,7 +334,9 @@ async def get_session_status(session_id: str):
         current_iteration=session.current_iteration,
         max_iterations=session.max_iterations,
         iterations_history=session.iterations,
+        generated_code=session.generated_code,
         final_code=session.final_code,
+        error_message=session.error_message,
         created_at=session.created_at,
         updated_at=session.updated_at,
         # Render fields

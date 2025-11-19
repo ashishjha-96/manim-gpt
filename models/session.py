@@ -124,7 +124,9 @@ class SessionStatusResponse(BaseModel):
     current_iteration: int
     max_iterations: int
     iterations_history: List[CodeIteration]
-    final_code: Optional[str] = None
+    generated_code: Optional[str] = None  # Current/intermediate generated code
+    final_code: Optional[str] = None  # Final validated code
+    error_message: Optional[str] = None  # Error message if generation failed
     created_at: datetime
     updated_at: datetime
     # Render status fields
