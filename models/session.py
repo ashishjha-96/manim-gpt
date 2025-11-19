@@ -75,7 +75,9 @@ class SessionState(BaseModel):
     current_iteration: int = 0
     iterations: List[CodeIteration] = Field(default_factory=list)
     status: IterationStatus = IterationStatus.GENERATING
-    final_code: Optional[str] = None
+    generated_code: Optional[str] = None  # Current/intermediate generated code
+    final_code: Optional[str] = None  # Final validated code
+    error_message: Optional[str] = None  # Error message if generation failed
     rendered_video_path: Optional[str] = None  # Path to rendered video file
 
     # Render tracking
