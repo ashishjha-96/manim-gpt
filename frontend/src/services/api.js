@@ -56,8 +56,9 @@ class ManimAPI {
   }
 
   /**
-   * Connect to unified SSE stream for session updates (NDJSON format)
+   * Connect to unified SSE stream for session updates using EventSource API
    * Provides real-time updates for both generation AND render progress
+   * Note: EventSource automatically handles SSE format ('data:' prefix)
    * @param {string} sessionId - Session ID to stream
    * @param {Function} onEvent - Callback for each event
    * @returns {Function} - Cleanup function to close the connection
@@ -65,12 +66,10 @@ class ManimAPI {
   connectToSessionSSE(sessionId, onEvent) {
     const url = `${this.baseURL}/session/${sessionId}/sse`;
     const eventSource = new EventSource(url);
-    let buffer = '';
 
-    // EventSource doesn't parse NDJSON automatically, so we need to handle it
+    // EventSource automatically strips 'data:' prefix and parses SSE format
     eventSource.onmessage = (e) => {
       try {
-        // The data comes as plain JSON lines (NDJSON), not SSE format
         const data = JSON.parse(e.data);
         if (onEvent) {
           onEvent(data);
@@ -95,8 +94,8 @@ class ManimAPI {
   }
 
   /**
-   * Alternative: Manually stream NDJSON from session SSE endpoint
-   * Use this if EventSource doesn't work properly with NDJSON
+   * Manually stream SSE from session SSE endpoint
+   * Handles Server-Sent Events format with 'data:' prefix
    * @param {string} sessionId - Session ID to stream
    * @param {Function} onEvent - Callback for each event
    * @returns {Promise<Function>} - Cleanup function to abort the stream
@@ -126,14 +125,23 @@ class ManimAPI {
           buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
           for (const line of lines) {
-            if (line.trim()) {
+            const trimmedLine = line.trim();
+            if (trimmedLine) {
               try {
-                const data = JSON.parse(line);
-                if (onEvent) {
-                  onEvent(data);
+                // Handle SSE format: strip 'data: ' prefix if present
+                let jsonData = trimmedLine;
+                if (jsonData.startsWith('data: ')) {
+                  jsonData = jsonData.substring(6); // Remove 'data: ' prefix
+                }
+
+                if (jsonData) {
+                  const data = JSON.parse(jsonData);
+                  if (onEvent) {
+                    onEvent(data);
+                  }
                 }
               } catch (error) {
-                console.error('Error parsing NDJSON line:', error, line);
+                console.error('Error parsing SSE line:', error, line);
               }
             }
           }

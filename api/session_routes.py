@@ -352,11 +352,11 @@ async def get_session_status(session_id: str):
 @router.get("/{session_id}/sse")
 async def session_sse_stream(session_id: str):
     """
-    Unified Server-Sent Events stream for session updates (NDJSON format).
+    Unified Server-Sent Events stream for session updates (SSE format).
 
     This endpoint provides real-time updates for BOTH generation and render progress
-    in a single stream. The stream sends pure NDJSON (newline-delimited JSON),
-    where each line is a complete JSON object followed by a newline.
+    in a single stream. The stream sends standard SSE format with 'data:' prefix,
+    where each event is: data: {json}\n\n
 
     This replaces the need for separate streaming and polling endpoints.
 
@@ -379,7 +379,7 @@ async def session_sse_stream(session_id: str):
     """
 
     async def event_generator():
-        """Generator for NDJSON events."""
+        """Generator for SSE events."""
         # Check if session exists
         session = session_manager.get_session(session_id)
         if not session:
@@ -388,7 +388,7 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "message": f"Session {session_id} not found"
             }
-            yield f"{json.dumps(error_event)}\n"
+            yield f"data: {json.dumps(error_event)}\n\n"
             return
 
         # Send initial session state
@@ -400,7 +400,7 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "state": initial_state
             }
-            yield f"{json.dumps(initial_event)}\n"
+            yield f"data: {json.dumps(initial_event)}\n\n"
         except Exception as e:
             logger.error(f"Error getting initial state: {e}")
 
@@ -419,7 +419,7 @@ async def session_sse_stream(session_id: str):
                         "event": "session_deleted",
                         "session_id": session_id
                     }
-                    yield f"{json.dumps(error_event)}\n"
+                    yield f"data: {json.dumps(error_event)}\n\n"
                     break
 
                 # Get current state
@@ -473,7 +473,7 @@ async def session_sse_stream(session_id: str):
                             "timestamp": datetime.utcnow().isoformat(),
                             "state": current_state
                         }
-                        yield f"{json.dumps(update_event)}\n"
+                        yield f"data: {json.dumps(update_event)}\n\n"
 
                         last_state = current_state
                         last_update_time = session.updated_at
@@ -498,7 +498,7 @@ async def session_sse_stream(session_id: str):
                                 "session_id": session_id,
                                 "message": "Session complete"
                             }
-                            yield f"{json.dumps(done_event)}\n"
+                            yield f"data: {json.dumps(done_event)}\n\n"
                             break
 
                 except Exception as e:
@@ -508,7 +508,7 @@ async def session_sse_stream(session_id: str):
                         "session_id": session_id,
                         "error": str(e)
                     }
-                    yield f"{json.dumps(error_event)}\n"
+                    yield f"data: {json.dumps(error_event)}\n\n"
 
                 # Poll interval (adjust as needed)
                 await asyncio.sleep(0.5)
@@ -523,7 +523,7 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "error": str(e)
             }
-            yield f"{json.dumps(error_event)}\n"
+            yield f"data: {json.dumps(error_event)}\n\n"
 
     return StreamingResponse(
         event_generator(),
