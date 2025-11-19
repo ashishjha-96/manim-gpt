@@ -407,7 +407,7 @@ async def session_sse_stream(session_id: str):
     """
 
     async def event_generator():
-        """Generator for SSE events."""
+        """Generator for SSE events with immediate flushing."""
         # Check if session exists
         session = session_manager.get_session(session_id)
         if not session:
@@ -416,7 +416,8 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "message": f"Session {session_id} not found"
             }
-            yield f"data: {json.dumps(error_event)}\n\n"
+            # Yield with explicit newline to force flush
+            yield f"data: {json.dumps(error_event)}\n\n".encode('utf-8')
             return
 
         # Send initial session state
@@ -428,7 +429,7 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "state": initial_state
             }
-            yield f"data: {json.dumps(initial_event)}\n\n"
+            yield f"data: {json.dumps(initial_event)}\n\n".encode('utf-8')
         except Exception as e:
             logger.error(f"Error getting initial state: {e}")
 
@@ -449,7 +450,7 @@ async def session_sse_stream(session_id: str):
                         "event": "session_deleted",
                         "session_id": session_id
                     }
-                    yield f"data: {json.dumps(error_event)}\n\n"
+                    yield f"data: {json.dumps(error_event)}\n\n".encode('utf-8')
                     break
 
                 # Get current state
@@ -513,7 +514,7 @@ async def session_sse_stream(session_id: str):
                             "timestamp": datetime.utcnow().isoformat(),
                             "state": current_state
                         }
-                        yield f"data: {json.dumps(update_event)}\n\n"
+                        yield f"data: {json.dumps(update_event)}\n\n".encode('utf-8')
 
                         last_state_json = current_state_json
                         last_update_time = session.updated_at
@@ -550,7 +551,7 @@ async def session_sse_stream(session_id: str):
                                 "session_id": session_id,
                                 "message": "Session complete"
                             }
-                            yield f"data: {json.dumps(done_event)}\n\n"
+                            yield f"data: {json.dumps(done_event)}\n\n".encode('utf-8')
                             break
 
                     elif should_send_heartbeat:
@@ -563,7 +564,8 @@ async def session_sse_stream(session_id: str):
                             "status": current_state.get("status"),
                             "message": "Keepalive - session is still processing"
                         }
-                        yield f"data: {json.dumps(heartbeat_event)}\n\n"
+                        # Encode to bytes to ensure immediate transmission (prevents buffering)
+                        yield f"data: {json.dumps(heartbeat_event)}\n\n".encode('utf-8')
                         last_heartbeat_time = now
                         logger.debug(f"Sent heartbeat for session {session_id}")
 
@@ -574,7 +576,7 @@ async def session_sse_stream(session_id: str):
                         "session_id": session_id,
                         "error": str(e)
                     }
-                    yield f"data: {json.dumps(error_event)}\n\n"
+                    yield f"data: {json.dumps(error_event)}\n\n".encode('utf-8')
 
                 # Poll interval - use shorter interval for more responsive updates
                 await asyncio.sleep(0.2)
@@ -589,7 +591,7 @@ async def session_sse_stream(session_id: str):
                 "session_id": session_id,
                 "error": str(e)
             }
-            yield f"data: {json.dumps(error_event)}\n\n"
+            yield f"data: {json.dumps(error_event)}\n\n".encode('utf-8')
 
     return StreamingResponse(
         event_generator(),
