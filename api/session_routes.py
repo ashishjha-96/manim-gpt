@@ -527,11 +527,12 @@ async def session_sse_stream(session_id: str):
 
     return StreamingResponse(
         event_generator(),
-        media_type="application/x-ndjson",
+        media_type="text/event-stream",  # Use SSE media type to prevent buffering
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked"
         }
     )
 
