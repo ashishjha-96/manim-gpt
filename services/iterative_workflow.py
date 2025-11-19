@@ -385,7 +385,8 @@ async def run_iterative_generation(
 
     # Execute workflow with streaming if callback provided
     if progress_callback:
-        # Stream events from workflow
+        # Stream events from workflow and accumulate final state
+        final_state = None
         async for event in workflow.astream(initial_state):
             # Extract node name and state from event
             if event:
@@ -404,8 +405,16 @@ async def run_iterative_generation(
                     }
                     await progress_callback(progress_data)
 
-        # Get final state
-        final_state = await workflow.ainvoke(initial_state)
+                    # Accumulate the most complete state
+                    if final_state is None:
+                        final_state = node_state
+                    else:
+                        # Merge states, preserving the most recent non-None values
+                        final_state = {**final_state, **{k: v for k, v in node_state.items() if v is not None}}
+
+        # If no events were received, fall back to invoke
+        if final_state is None:
+            final_state = await workflow.ainvoke(initial_state)
     else:
         # Execute workflow normally without streaming
         final_state = await workflow.ainvoke(initial_state)

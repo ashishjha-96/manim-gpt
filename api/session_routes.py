@@ -125,30 +125,58 @@ async def _generate_code_background(
 
         logger.info(f"[Generate {session_id}] Starting background generation")
 
-        # Run iterative generation
+        # Define progress callback to update session in real-time
+        async def progress_callback(workflow_data: dict):
+            """Update session state as workflow progresses."""
+            try:
+                updater_local = SessionUpdater(session_id)
+
+                # Update with current iteration data
+                current_iter = workflow_data.get("current_iteration", 0)
+                status = workflow_data.get("status", IterationStatus.GENERATING)
+                code = workflow_data.get("generated_code")
+                validation = workflow_data.get("validation_result")
+
+                # Get the latest iteration from history if available
+                iterations_history = workflow_data.get("iterations_history", [])
+                if iterations_history:
+                    latest_iteration = iterations_history[-1]
+                    updater_local.update_generation_iteration(
+                        iteration=latest_iteration.iteration_number,
+                        status=latest_iteration.status,
+                        code=latest_iteration.generated_code,
+                        validation_result=latest_iteration.validation_result,
+                        generation_metrics=latest_iteration.generation_metrics,
+                        validation_metrics=latest_iteration.validation_metrics
+                    )
+                else:
+                    # Update basic status even if no iteration yet
+                    session = session_manager.get_session(session_id)
+                    if session:
+                        session.status = status
+                        session.current_iteration = current_iter
+                        if code:
+                            session.generated_code = code
+                        session_manager.update_session(session)
+
+                logger.debug(f"[Generate {session_id}] Progress: iter={current_iter}, status={status}")
+            except Exception as e:
+                logger.error(f"[Generate {session_id}] Error in progress callback: {e}")
+
+        # Run iterative generation WITH progress callback
         workflow_state = await run_iterative_generation(
             session_id=session_id,
             prompt=prompt,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            progress_callback=progress_callback
         )
 
         # Update session with final results
         final_code = workflow_state.get("generated_code", "")
         status = workflow_state.get("status", IterationStatus.FAILED)
-
-        # Update each iteration from workflow
-        for iteration in workflow_state.get("iterations_history", []):
-            updater.update_generation_iteration(
-                iteration=iteration.iteration_number,
-                status=iteration.status,
-                code=iteration.generated_code,
-                validation_result=iteration.validation_result,
-                generation_metrics=iteration.generation_metrics,
-                validation_metrics=iteration.validation_metrics
-            )
 
         # Mark as complete
         updater.update_generation_complete(
@@ -404,8 +432,8 @@ async def session_sse_stream(session_id: str):
         except Exception as e:
             logger.error(f"Error getting initial state: {e}")
 
-        # Track last known state to detect changes
-        last_state = None
+        # Track last known state to detect changes (using JSON serialization for deep comparison)
+        last_state_json = None
         last_update_time = None
 
         # Stream updates (poll session for changes)
@@ -427,8 +455,11 @@ async def session_sse_stream(session_id: str):
                     updater = SessionUpdater(session_id)
                     current_state = updater.get_current_state()
 
-                    # Check if state changed
-                    if current_state != last_state or session.updated_at != last_update_time:
+                    # Serialize state for comparison
+                    current_state_json = json.dumps(current_state, sort_keys=True, default=str)
+
+                    # Check if state changed (compare JSON strings or updated_at timestamp)
+                    if current_state_json != last_state_json or session.updated_at != last_update_time:
                         # Determine event type based on status changes
                         event_type = "update"
 
@@ -475,7 +506,7 @@ async def session_sse_stream(session_id: str):
                         }
                         yield f"data: {json.dumps(update_event)}\n\n"
 
-                        last_state = current_state
+                        last_state_json = current_state_json
                         last_update_time = session.updated_at
 
                         # Check if session is in a terminal state
@@ -490,8 +521,19 @@ async def session_sse_stream(session_id: str):
                             None
                         ]
 
-                        # If both generation and render are done (or render never started), we can close
-                        if terminal_generation and terminal_render and session.render_status == RenderStatus.COMPLETED:
+                        # Close stream if:
+                        # 1. Both generation and render are done (if render was started)
+                        # 2. Generation is done and render was never started (None)
+                        should_close = False
+                        if terminal_generation:
+                            if session.render_status is None:
+                                # No render requested, close after generation
+                                should_close = True
+                            elif terminal_render and session.render_status in [RenderStatus.COMPLETED, RenderStatus.FAILED]:
+                                # Render finished (success or failure), close
+                                should_close = True
+
+                        if should_close:
                             # Send final done event
                             done_event = {
                                 "event": "done",
@@ -510,8 +552,8 @@ async def session_sse_stream(session_id: str):
                     }
                     yield f"data: {json.dumps(error_event)}\n\n"
 
-                # Poll interval (adjust as needed)
-                await asyncio.sleep(0.5)
+                # Poll interval - use shorter interval for more responsive updates
+                await asyncio.sleep(0.2)
 
         except asyncio.CancelledError:
             # Client disconnected
