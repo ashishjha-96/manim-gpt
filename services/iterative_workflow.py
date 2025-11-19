@@ -13,15 +13,9 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from litellm import acompletion
 from services.code_validator import validate_code
 from models.session import IterationStatus, CodeIteration, GenerationMetrics, ValidationMetrics
-from utils.logger import get_logger
+from utils.logger import get_logger, get_logger_with_session
 
-# Create loggers for different workflow components
-logger_generate = get_logger("Generate")
-logger_validate = get_logger("Validate")
-logger_decide = get_logger("Decide")
-logger_complete = get_logger("Complete")
-logger_max_iter = get_logger("MaxIterations")
-logger_refine = get_logger("Refine")
+# Create base loggers for workflow components (session-specific loggers will be created in nodes)
 logger_workflow = get_logger("Workflow")
 
 
@@ -51,6 +45,8 @@ async def generate_code_node(state: WorkflowState) -> dict:
     For first iteration, uses the original prompt.
     For refinements, includes error feedback.
     """
+    # Create session-aware logger
+    logger_generate = get_logger_with_session("Generate", state["session_id"])
     logger_generate.info(f"Iteration {state['current_iteration'] + 1}")
 
     # Build system prompt
@@ -188,13 +184,15 @@ async def validate_code_node(state: WorkflowState) -> dict:
     Node that validates the generated Manim code.
     Runs syntax checks and Manim dry-run.
     """
+    # Create session-aware logger
+    logger_validate = get_logger_with_session("Validate", state["session_id"])
     logger_validate.info(f"Validating code for iteration {state['current_iteration'] + 1}")
 
     code = state["generated_code"]
 
     # Track validation time
     start_time = time.time()
-    validation_result = await validate_code(code, dry_run=True)
+    validation_result = await validate_code(code, dry_run=True, session_id=state["session_id"])
     end_time = time.time()
 
     # Create validation metrics
@@ -237,6 +235,9 @@ def decide_next_step(state: WorkflowState) -> str:
     - 'refine' if code has errors and we haven't hit max iterations
     - 'max_iterations' if we've exhausted attempts
     """
+    # Create session-aware logger
+    logger_decide = get_logger_with_session("Decide", state["session_id"])
+
     validation = state["validation_result"]
     current_iter = state["current_iteration"]
     max_iter = state["max_iterations"]
@@ -258,6 +259,8 @@ async def complete_node(state: WorkflowState) -> dict:
     """
     Node for successful completion.
     """
+    # Create session-aware logger
+    logger_complete = get_logger_with_session("Complete", state["session_id"])
     logger_complete.success("Code generation successful!")
     return {
         "status": IterationStatus.SUCCESS,
@@ -269,6 +272,8 @@ async def max_iterations_node(state: WorkflowState) -> dict:
     """
     Node for when max iterations is reached without success.
     """
+    # Create session-aware logger
+    logger_max_iter = get_logger_with_session("MaxIterations", state["session_id"])
     logger_max_iter.warning("Maximum iterations reached without valid code.")
     return {
         "status": IterationStatus.MAX_ITERATIONS_REACHED,
@@ -281,6 +286,8 @@ async def refine_node(state: WorkflowState) -> dict:
     Node that prepares for refinement by updating status.
     The actual refinement happens in the next generate_code_node call.
     """
+    # Create session-aware logger
+    logger_refine = get_logger_with_session("Refine", state["session_id"])
     logger_refine.info("Preparing for refinement...")
     return {
         "status": IterationStatus.REFINING
@@ -358,8 +365,10 @@ async def run_iterative_generation(
     Returns:
         Final workflow state with results
     """
-    logger_workflow.info(f"Starting iterative generation for session {session_id}")
-    logger_workflow.info(f"Model: {model}, Max iterations: {max_iterations}")
+    # Create session-aware logger
+    logger = get_logger_with_session("Workflow", session_id)
+    logger.info(f"Starting iterative generation")
+    logger.info(f"Model: {model}, Max iterations: {max_iterations}")
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -410,8 +419,8 @@ async def run_iterative_generation(
         # Execute workflow normally without streaming
         final_state = await workflow.ainvoke(initial_state)
 
-    logger_workflow.success(f"Completed with status: {final_state['status']}")
-    logger_workflow.info(f"Total iterations: {final_state['current_iteration']}")
+    logger.success(f"Completed with status: {final_state['status']}")
+    logger.info(f"Total iterations: {final_state['current_iteration']}")
 
     return final_state
 
@@ -439,8 +448,10 @@ async def run_iterative_generation_streaming(
     Yields:
         Progress updates as dictionaries
     """
-    logger_workflow.info(f"[Streaming] Starting iterative generation for session {session_id}")
-    logger_workflow.info(f"[Streaming] Model: {model}, Max iterations: {max_iterations}")
+    # Create session-aware logger
+    logger = get_logger_with_session("Workflow", session_id)
+    logger.info(f"[Streaming] Starting iterative generation")
+    logger.info(f"[Streaming] Model: {model}, Max iterations: {max_iterations}")
 
     # Initialize state
     initial_state: WorkflowState = {
@@ -558,5 +569,5 @@ async def run_iterative_generation_streaming(
             "message": "Workflow completed successfully!"
         }
 
-    logger_workflow.success(f"[Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
-    logger_workflow.info(f"[Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")
+    logger.success(f"[Streaming] Completed with status: {final_state.get('status') if final_state else 'unknown'}")
+    logger.info(f"[Streaming] Total iterations: {final_state.get('current_iteration', 0) if final_state else 0}")

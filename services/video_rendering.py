@@ -7,10 +7,7 @@ from pathlib import Path
 from typing import Optional, Callable
 
 from utils.constants import QUALITY_PRESETS
-from utils.logger import get_logger
-
-# Create logger
-logger = get_logger("VideoRendering")
+from utils.logger import get_logger, get_logger_with_session
 
 
 async def render_manim_video(
@@ -28,7 +25,8 @@ async def render_manim_video(
     audio_speaker_id: int = 0,
     audio_speed: float = 1.0,
     progress_callback: Optional[Callable[[str, str], None]] = None,
-    timeout: int = 600  # 10 minutes default timeout
+    timeout: int = 600,  # 10 minutes default timeout
+    session_id: Optional[str] = None
 ) -> tuple[str, str]:
     """
     Render a Manim video from the generated code.
@@ -49,10 +47,13 @@ async def render_manim_video(
         audio_speed: Base speech speed multiplier for TTS
         progress_callback: Optional callback function(status, message) for progress updates
         timeout: Maximum time in seconds to wait for rendering (default: 600)
+        session_id: Optional session ID for logging context
 
     Returns:
         tuple: (video_path, temp_dir)
     """
+    # Create session-aware logger if session_id provided, otherwise use default logger
+    logger = get_logger_with_session("VideoRendering", session_id) if session_id else get_logger("VideoRendering")
     def emit_progress(status: str, message: str):
         """Helper to emit progress if callback is provided."""
         if progress_callback:
@@ -249,7 +250,8 @@ async def render_manim_video(
                     audio_language=audio_language,
                     audio_speaker_id=audio_speaker_id,
                     audio_speed=audio_speed,
-                    progress_callback=subtitle_progress_callback
+                    progress_callback=subtitle_progress_callback,
+                    session_id=session_id
                 )
                 logger.info(f"Subtitle generation completed! New video path: {final_video_path}")
                 emit_progress("stitching_subtitles", "Subtitles added successfully")

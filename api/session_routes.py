@@ -26,10 +26,7 @@ from services.session_manager import session_manager
 from services.iterative_workflow import run_iterative_generation, run_iterative_generation_streaming
 from services.video_rendering import render_manim_video
 from services.code_validator import validate_code
-from utils.logger import get_logger
-
-# Create logger for API routes
-logger = get_logger("API")
+from utils.logger import get_logger, get_logger_with_session
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -51,9 +48,12 @@ async def _render_video_background(
     audio_speed: float
 ):
     """Background task to render video and update session with progress."""
+    # Create session-aware logger
+    logger = get_logger_with_session("API", session_id)
+
     session = session_manager.get_session(session_id)
     if not session:
-        logger.error(f"Session {session_id} not found during background render")
+        logger.error(f"Session not found during background render")
         return
 
     temp_dir = None
@@ -76,7 +76,7 @@ async def _render_video_background(
                 timestamp=datetime.utcnow()
             ))
             session_manager.update_session(session)
-            logger.info(f"[Render {session_id}] {status}: {message}")
+            logger.info(f"[Render] {status}: {message}")
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
 
@@ -106,7 +106,8 @@ async def _render_video_background(
             audio_language=audio_language,
             audio_speaker_id=audio_speaker_id,
             audio_speed=audio_speed,
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            session_id=session_id
         )
 
         # Update session with success
@@ -120,12 +121,12 @@ async def _render_video_background(
         ))
         session_manager.update_session(session)
 
-        logger.info(f"[Render {session_id}] Completed successfully: {video_path}")
+        logger.info(f"[Render] Completed successfully: {video_path}")
 
     except Exception as e:
         # Update session with error
         error_msg = str(e)
-        logger.error(f"[Render {session_id}] Failed: {error_msg}")
+        logger.error(f"[Render] Failed: {error_msg}")
         logger.debug(traceback.format_exc())
 
         session.render_status = RenderStatus.FAILED
@@ -170,7 +171,9 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             max_iterations=request.max_iterations
         )
 
-        logger.info(f"Created session {session.session_id}")
+        # Create session-aware logger
+        logger = get_logger_with_session("API", session.session_id)
+        logger.info(f"Created session")
 
         # Run iterative workflow
         workflow_state = await run_iterative_generation(

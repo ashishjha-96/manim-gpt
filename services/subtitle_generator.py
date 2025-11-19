@@ -5,10 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Callable
 from litellm import acompletion
 
-from utils.logger import get_logger
-
-# Create logger
-logger = get_logger("SubtitleGenerator")
+from utils.logger import get_logger, get_logger_with_session
 
 
 def check_ffmpeg_available() -> bool:
@@ -21,7 +18,8 @@ async def generate_narration_from_code(
     prompt: str,
     model: str = "cerebras/zai-glm-4.6",
     max_tokens: int = 1000,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    session_id: Optional[str] = None
 ) -> List[dict]:
     """
     Generate narration segments from Manim code using LLM.
@@ -83,6 +81,10 @@ Generate the narration JSON array:"""
 
     # Parse the JSON response
     import json
+
+    # Create session-aware logger if session_id provided, otherwise use default logger
+    logger = get_logger_with_session("SubtitleGenerator", session_id) if session_id else get_logger("SubtitleGenerator")
+
     try:
         segments = json.loads(narration_text)
         # Validate structure
@@ -256,7 +258,8 @@ async def generate_and_add_subtitles(
     audio_language: str = "EN",
     audio_speaker_id: int = 0,
     audio_speed: float = 1.0,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    session_id: Optional[str] = None
 ) -> str:
     """
     Complete pipeline: generate narration, create SRT, optionally generate audio, add to video.
@@ -274,6 +277,7 @@ async def generate_and_add_subtitles(
         audio_speaker_id: Speaker voice ID for TTS
         audio_speed: Base speech speed multiplier for TTS
         progress_callback: Optional callback function(stage, message) for progress updates
+        session_id: Optional session ID for logging context
 
     Returns:
         Path to video with subtitles (and audio if enabled)
@@ -281,6 +285,9 @@ async def generate_and_add_subtitles(
     Raises:
         RuntimeError: If ffmpeg is not available or TTS is not available when enabled
     """
+    # Create session-aware logger if session_id provided, otherwise use default logger
+    logger = get_logger_with_session("SubtitleGenerator", session_id) if session_id else get_logger("SubtitleGenerator")
+
     def emit_progress(stage: str, message: str):
         """Helper to emit progress if callback is provided."""
         if progress_callback:
@@ -315,7 +322,7 @@ async def generate_and_add_subtitles(
     # Generate narration segments
     emit_progress("narration", "Generating narration segments using LLM")
     logger.info("Generating narration segments using LLM...")
-    segments = await generate_narration_from_code(code, prompt, model=model)
+    segments = await generate_narration_from_code(code, prompt, model=model, session_id=session_id)
     logger.info(f"Generated {len(segments)} narration segments")
     emit_progress("narration", f"Generated {len(segments)} narration segments")
 
@@ -343,7 +350,8 @@ async def generate_and_add_subtitles(
                 speaker_id=audio_speaker_id,
                 language=audio_language,
                 base_speed=audio_speed,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                session_id=session_id
             )
 
             logger.info("Audio narration generated successfully")

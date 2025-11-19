@@ -8,10 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
-from utils.logger import get_logger
-
-
-logger = get_logger("Code Validator")
+from utils.logger import get_logger, get_logger_with_session
 
 class ValidationResult:
     """Result of code validation."""
@@ -105,7 +102,8 @@ async def validate_manim_structure(code: str) -> ValidationResult:
 async def validate_manim_dry_run(
     code: str,
     progress_callback: Optional[Callable[[str, str], None]] = None,
-    timeout: int = 600  # 10 minutes default timeout
+    timeout: int = 600,  # 10 minutes default timeout
+    session_id: Optional[str] = None
 ) -> ValidationResult:
     """
     Run Manim with --dry_run flag to validate without rendering.
@@ -115,10 +113,14 @@ async def validate_manim_dry_run(
         code: Python code to validate
         progress_callback: Optional callback function(stage, message) for progress updates
         timeout: Maximum time in seconds to wait for validation (default: 180)
+        session_id: Optional session ID for logging context
 
     Returns:
         ValidationResult with dry-run validation results
     """
+    # Create session-aware logger if session_id provided, otherwise use default logger
+    logger = get_logger_with_session("Code Validator", session_id) if session_id else get_logger("Code Validator")
+
     result = ValidationResult()
     temp_dir = None
     process = None
@@ -287,7 +289,8 @@ async def validate_manim_dry_run(
 async def validate_code(
     code: str,
     dry_run: bool = True,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    session_id: Optional[str] = None
 ) -> Dict:
     """
     Comprehensive code validation combining all checks.
@@ -296,6 +299,7 @@ async def validate_code(
         code: Python code to validate
         dry_run: Whether to run Manim dry-run validation (slower but more thorough)
         progress_callback: Optional callback function(stage, message) for progress updates
+        session_id: Optional session ID for logging context
 
     Returns:
         Dictionary with validation results
@@ -355,7 +359,7 @@ async def validate_code(
     # Step 4: Dry-run validation (optional, more thorough)
     if dry_run:
         emit_progress("dry_run", "Starting Manim dry-run validation")
-        dry_run_result = await validate_manim_dry_run(code, progress_callback)
+        dry_run_result = await validate_manim_dry_run(code, progress_callback, session_id=session_id)
         all_errors.extend(dry_run_result.errors)
         all_warnings.extend(dry_run_result.warnings)
         if dry_run_result.error_details:

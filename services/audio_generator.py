@@ -21,10 +21,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Callable
 from pydub import AudioSegment
 
-from utils.logger import get_logger
-
-# Create logger
-logger = get_logger("AudioGenerator")
+from utils.logger import get_logger, get_logger_with_session
 
 # Voice model paths - these will be downloaded to this directory
 VOICE_MODELS_DIR = Path(__file__).parent.parent / "voice_models"
@@ -367,7 +364,8 @@ async def generate_audio_from_segments(
     speaker_id: int = 0,
     language: str = "EN",
     base_speed: float = 1.0,
-    progress_callback: Optional[Callable[[str, str], None]] = None
+    progress_callback: Optional[Callable[[str, str], None]] = None,
+    session_id: Optional[str] = None
 ) -> str:
     """
     Generate synchronized audio from narration segments.
@@ -382,6 +380,7 @@ async def generate_audio_from_segments(
         language: Language code (EN, ES, FR, ZH, JP, KR)
         base_speed: Base speech speed multiplier (0.5 - 2.0)
         progress_callback: Optional callback(stage, message) for progress updates
+        session_id: Optional session ID for logging context
 
     Returns:
         Path to the generated audio file
@@ -390,6 +389,9 @@ async def generate_audio_from_segments(
         ImportError: If Piper TTS is not installed
         Exception: If audio generation fails
     """
+    # Create session-aware logger if session_id provided, otherwise use default logger
+    logger = get_logger_with_session("AudioGenerator", session_id) if session_id else get_logger("AudioGenerator")
+
     def emit_progress(stage: str, message: str):
         """Helper to emit progress if callback is provided."""
         if progress_callback:
