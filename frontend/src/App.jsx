@@ -48,6 +48,8 @@ function App() {
   };
 
   const handleGenerate = async (params) => {
+    let cleanup = null;
+
     try {
       setIsGenerating(true);
       setSessionId(null);
@@ -59,43 +61,83 @@ function App() {
       setMaxIterations(params.max_iterations || 5);
       setStatus('generating');
 
-      await manimAPI.generateWithStreaming(params, (event) => {
+      // Start async generation
+      const result = await manimAPI.generateAsync(params);
+      const newSessionId = result.session_id;
+      setSessionId(newSessionId);
+
+      console.log('Generation started:', result);
+
+      // Connect to unified SSE stream for updates
+      cleanup = await manimAPI.streamSessionUpdates(newSessionId, (event) => {
         console.log('SSE Event:', event);
 
-        if (event.event === 'start') {
-          setSessionId(event.session_id);
-          setMaxIterations(event.max_iterations || 5);
-        } else if (event.event === 'progress') {
-          setCurrentIteration(event.current_iteration || 0);
-          setStatus(event.status || 'generating');
+        if (event.event === 'session_connected') {
+          // Initial connection - get current state
+          const state = event.state;
+          if (state) {
+            setCurrentIteration(state.current_iteration || 0);
+            setMaxIterations(state.max_iterations || 5);
+            setStatus(state.status || 'generating');
 
-          if (event.generated_code) {
-            setGeneratedCode(event.generated_code);
+            if (state.final_code) {
+              setGeneratedCode(state.final_code);
+            }
+
+            if (state.iterations_history) {
+              setIterations(state.iterations_history);
+            }
           }
+        } else if (event.event === 'generation_progress') {
+          // Generation progress update
+          const state = event.state;
+          if (state) {
+            setCurrentIteration(state.current_iteration || 0);
+            setStatus(state.status || 'generating');
 
-          if (event.validation_result) {
-            setValidationResult(event.validation_result);
+            if (state.generated_code) {
+              setGeneratedCode(state.generated_code);
+            }
+
+            if (state.iterations_history && state.iterations_history.length > 0) {
+              setIterations(state.iterations_history);
+              const lastIteration = state.iterations_history[state.iterations_history.length - 1];
+              if (lastIteration.validation_result) {
+                setValidationResult(lastIteration.validation_result);
+              }
+            }
           }
+        } else if (event.event === 'generation_complete') {
+          // Generation complete
+          const state = event.state;
+          if (state) {
+            setStatus(state.status || 'success');
+            setCurrentIteration(state.current_iteration || 0);
 
-          if (event.iterations_history) {
-            setIterations(event.iterations_history);
-          }
-        } else if (event.event === 'complete') {
-          setStatus(event.status || 'success');
-          setCurrentIteration(event.current_iteration || 0);
+            if (state.final_code) {
+              setGeneratedCode(state.final_code);
+            }
 
-          if (event.generated_code) {
-            setGeneratedCode(event.generated_code);
-          }
-
-          if (event.validation_result) {
-            setValidationResult(event.validation_result);
+            if (state.iterations_history && state.iterations_history.length > 0) {
+              setIterations(state.iterations_history);
+              const lastIteration = state.iterations_history[state.iterations_history.length - 1];
+              if (lastIteration.validation_result) {
+                setValidationResult(lastIteration.validation_result);
+              }
+            }
           }
 
           setIsGenerating(false);
-        } else if (event.event === 'error') {
-          console.error('Generation error:', event.error);
+        } else if (event.event === 'generation_error') {
+          console.error('Generation error:', event);
           setStatus('failed');
+          setIsGenerating(false);
+        } else if (event.event === 'error' || event.event === 'fatal_error') {
+          console.error('SSE error:', event.error);
+          setStatus('failed');
+          setIsGenerating(false);
+        } else if (event.event === 'done') {
+          // Stream closed normally
           setIsGenerating(false);
         }
       });
@@ -103,6 +145,11 @@ function App() {
       console.error('Generation failed:', error);
       setStatus('failed');
       setIsGenerating(false);
+
+      // Clean up SSE connection on error
+      if (cleanup) {
+        cleanup();
+      }
     }
   };
 
@@ -130,6 +177,8 @@ function App() {
 
   const handleRender = async (renderSettings) => {
     if (!sessionId) return;
+
+    let cleanup = null;
 
     try {
       setIsRendering(true);
@@ -159,31 +208,63 @@ function App() {
         return;
       }
 
-      // Poll for render status with progress updates
-      const finalStatus = await manimAPI.pollRenderStatus(sessionId, (statusUpdate) => {
-        setRenderStatus(statusUpdate.render_status);
-        setRenderProgress(statusUpdate.progress || []);
+      console.log('Render started:', queueResult);
 
-        // Log progress for debugging
-        console.log('Render status:', statusUpdate.render_status, 'Progress:', statusUpdate.progress);
+      // Connect to unified SSE stream for render updates
+      cleanup = await manimAPI.streamSessionUpdates(sessionId, (event) => {
+        console.log('Render SSE Event:', event);
+
+        if (event.event === 'render_queued' || event.event === 'render_started' || event.event === 'render_progress') {
+          const state = event.state;
+          if (state) {
+            setRenderStatus(state.render_status);
+            setRenderProgress(state.render_progress || []);
+          }
+        } else if (event.event === 'render_complete') {
+          const state = event.state;
+          if (state) {
+            setRenderStatus(state.render_status);
+            setRenderProgress(state.render_progress || []);
+
+            // Use stream URL for video playback in the UI
+            const url = manimAPI.getVideoStreamUrl(sessionId);
+            setVideoUrl(url);
+            setVideoFormat(renderSettings.format);
+            console.log('Rendering completed successfully!');
+          }
+
+          setIsRendering(false);
+
+          // Clean up SSE connection
+          if (cleanup) {
+            cleanup();
+          }
+        } else if (event.event === 'render_error') {
+          const state = event.state;
+          if (state) {
+            setRenderStatus(state.render_status);
+            setRenderProgress(state.render_progress || []);
+            console.error('Rendering failed:', state.render_error);
+            alert('Rendering failed: ' + (state.render_error || 'Unknown error'));
+          }
+
+          setIsRendering(false);
+
+          // Clean up SSE connection
+          if (cleanup) {
+            cleanup();
+          }
+        }
       });
-
-      // Handle completion
-      if (finalStatus.render_status === 'completed') {
-        // Use stream URL for video playback in the UI
-        const url = manimAPI.getVideoStreamUrl(sessionId);
-        setVideoUrl(url);
-        setVideoFormat(renderSettings.format);
-        console.log('Rendering completed successfully!');
-      } else if (finalStatus.render_status === 'failed') {
-        console.error('Rendering failed:', finalStatus.error);
-        alert('Rendering failed: ' + (finalStatus.error || 'Unknown error'));
-      }
     } catch (error) {
       console.error('Rendering error:', error);
       alert('Rendering failed. Please try again.');
-    } finally {
       setIsRendering(false);
+
+      // Clean up SSE connection on error
+      if (cleanup) {
+        cleanup();
+      }
     }
   };
 
