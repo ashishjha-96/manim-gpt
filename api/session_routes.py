@@ -435,6 +435,8 @@ async def session_sse_stream(session_id: str):
         # Track last known state to detect changes (using JSON serialization for deep comparison)
         last_state_json = None
         last_update_time = None
+        last_heartbeat_time = datetime.utcnow()
+        heartbeat_interval = 10  # Send heartbeat every 10 seconds if no updates
 
         # Stream updates (poll session for changes)
         try:
@@ -459,7 +461,14 @@ async def session_sse_stream(session_id: str):
                     current_state_json = json.dumps(current_state, sort_keys=True, default=str)
 
                     # Check if state changed (compare JSON strings or updated_at timestamp)
-                    if current_state_json != last_state_json or session.updated_at != last_update_time:
+                    state_changed = current_state_json != last_state_json or session.updated_at != last_update_time
+
+                    # Send heartbeat if no updates for heartbeat_interval seconds
+                    now = datetime.utcnow()
+                    time_since_last_heartbeat = (now - last_heartbeat_time).total_seconds()
+                    should_send_heartbeat = time_since_last_heartbeat >= heartbeat_interval
+
+                    if state_changed:
                         # Determine event type based on status changes
                         event_type = "update"
 
@@ -508,6 +517,7 @@ async def session_sse_stream(session_id: str):
 
                         last_state_json = current_state_json
                         last_update_time = session.updated_at
+                        last_heartbeat_time = now  # Reset heartbeat timer on state change
 
                         # Check if session is in a terminal state
                         terminal_generation = session.status in [
@@ -542,6 +552,20 @@ async def session_sse_stream(session_id: str):
                             }
                             yield f"data: {json.dumps(done_event)}\n\n"
                             break
+
+                    elif should_send_heartbeat:
+                        # Send keepalive heartbeat to prevent client timeout
+                        # This is especially important during long operations like validation
+                        heartbeat_event = {
+                            "event": "heartbeat",
+                            "session_id": session_id,
+                            "timestamp": now.isoformat(),
+                            "status": current_state.get("status"),
+                            "message": "Keepalive - session is still processing"
+                        }
+                        yield f"data: {json.dumps(heartbeat_event)}\n\n"
+                        last_heartbeat_time = now
+                        logger.debug(f"Sent heartbeat for session {session_id}")
 
                 except Exception as e:
                     logger.error(f"Error in SSE stream: {e}")
