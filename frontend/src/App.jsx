@@ -145,7 +145,11 @@ function App() {
         renderSettings.background_color,
         renderSettings.include_subtitles,
         renderSettings.subtitle_font_size || 24,
-        renderSettings.subtitle_style || null
+        renderSettings.subtitle_style || null,
+        renderSettings.enable_audio || false,
+        renderSettings.audio_language || 'EN',
+        renderSettings.audio_speaker_id || 0,
+        renderSettings.audio_speed || 1.0
       );
 
       if (queueResult.status !== 'queued') {

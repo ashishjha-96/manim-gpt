@@ -18,7 +18,10 @@ dependencies = [
     "httpx>=0.24.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
-    "loguru>=0.7.0"
+    "loguru>=0.7.0",
+    "pydub>=0.25.1",
+    "piper-tts>=1.2.0",
+    "onnxruntime>=1.16.0"
 ]
 
 [tool.setuptools]

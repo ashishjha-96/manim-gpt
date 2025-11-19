@@ -49,7 +49,11 @@ async def generate_video(request: VideoGenerationRequest):
             include_subtitles=request.include_subtitles,
             prompt=request.prompt,
             model=request.model,
-            subtitle_style=request.subtitle_style
+            subtitle_style=request.subtitle_style,
+            enable_audio=request.enable_audio,
+            audio_language=request.audio_language,
+            audio_speaker_id=request.audio_speaker_id,
+            audio_speed=request.audio_speed
         )
 
         return VideoGenerationResponse(

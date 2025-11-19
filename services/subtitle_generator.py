@@ -139,10 +139,11 @@ async def add_subtitles_to_video(
     output_path: str,
     subtitle_style: Optional[str] = None,
     font_size: int = 24,
+    audio_path: Optional[str] = None,
     timeout: int = 300  # 5 minutes default timeout
 ) -> None:
     """
-    Add subtitles to video using FFmpeg.
+    Add subtitles to video using FFmpeg, optionally with audio narration.
 
     Args:
         video_path: Path to input video
@@ -150,6 +151,7 @@ async def add_subtitles_to_video(
         output_path: Path for output video with subtitles
         subtitle_style: Optional custom subtitle style (ASS format). If provided, font_size is ignored.
         font_size: Font size for subtitles (default: 24). Only used if subtitle_style is None.
+        audio_path: Optional path to audio file to mix with video
         timeout: Maximum time in seconds to wait for FFmpeg (default: 300)
 
     Raises:
@@ -172,14 +174,31 @@ async def add_subtitles_to_video(
         )
 
     # Build FFmpeg command to burn subtitles into video
-    cmd = [
-        "ffmpeg",
-        "-i", video_path,
-        "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
-        "-c:a", "copy",  # Copy audio stream without re-encoding
-        "-y",  # Overwrite output file
-        output_path
-    ]
+    if audio_path and Path(audio_path).exists():
+        # With audio: mix audio with video and burn subtitles
+        logger.info(f"Adding audio from: {audio_path}")
+        cmd = [
+            "ffmpeg",
+            "-i", video_path,
+            "-i", audio_path,
+            "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
+            "-c:v", "libx264",  # Re-encode video (required for filter)
+            "-c:a", "aac",      # Encode audio as AAC
+            "-b:a", "192k",     # Audio bitrate
+            "-shortest",        # Match shortest input duration
+            "-y",               # Overwrite output file
+            output_path
+        ]
+    else:
+        # Subtitle only (original behavior)
+        cmd = [
+            "ffmpeg",
+            "-i", video_path,
+            "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
+            "-c:a", "copy",  # Copy audio stream without re-encoding
+            "-y",  # Overwrite output file
+            output_path
+        ]
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -233,10 +252,14 @@ async def generate_and_add_subtitles(
     model: str = "cerebras/zai-glm-4.6",
     subtitle_style: Optional[str] = None,
     font_size: int = 24,
+    enable_audio: bool = False,
+    audio_language: str = "EN",
+    audio_speaker_id: int = 0,
+    audio_speed: float = 1.0,
     progress_callback: Optional[Callable[[str, str], None]] = None
 ) -> str:
     """
-    Complete pipeline: generate narration, create SRT, add to video.
+    Complete pipeline: generate narration, create SRT, optionally generate audio, add to video.
 
     Args:
         video_path: Path to original video
@@ -246,13 +269,17 @@ async def generate_and_add_subtitles(
         model: LLM model to use for narration generation
         subtitle_style: Optional custom subtitle style (ASS format). If provided, font_size is ignored.
         font_size: Font size for subtitles (default: 24). Only used if subtitle_style is None.
+        enable_audio: Whether to generate audio narration using TTS
+        audio_language: Language code for TTS (EN, ES, FR, ZH, JP, KR)
+        audio_speaker_id: Speaker voice ID for TTS
+        audio_speed: Base speech speed multiplier for TTS
         progress_callback: Optional callback function(stage, message) for progress updates
 
     Returns:
-        Path to video with subtitles
+        Path to video with subtitles (and audio if enabled)
 
     Raises:
-        RuntimeError: If ffmpeg is not available
+        RuntimeError: If ffmpeg is not available or TTS is not available when enabled
     """
     def emit_progress(stage: str, message: str):
         """Helper to emit progress if callback is provided."""
@@ -262,6 +289,7 @@ async def generate_and_add_subtitles(
     logger.info("Starting subtitle generation pipeline")
     logger.info(f"Video path: {video_path}")
     logger.info(f"Model: {model}")
+    logger.info(f"Enable audio: {enable_audio}")
     logger.info(f"Prompt: {prompt[:100]}...")
 
     # Check ffmpeg availability early
@@ -271,6 +299,17 @@ async def generate_and_add_subtitles(
             "Please install it from https://ffmpeg.org/download.html"
         )
     logger.info("FFmpeg is available")
+
+    # Check TTS availability if audio is enabled
+    if enable_audio:
+        from services.audio_generator import check_pipertts_available
+        if not await check_pipertts_available():
+            raise RuntimeError(
+                "Piper TTS is not installed. Audio narration requires Piper TTS. "
+                "Install with: pip install piper-tts"
+            )
+        logger.info("Piper TTS is available")
+
     temp_path = Path(temp_dir)
 
     # Generate narration segments
@@ -288,22 +327,54 @@ async def generate_and_add_subtitles(
     logger.info("SRT file created successfully")
     emit_progress("srt", "SRT file created successfully")
 
-    # Add subtitles to video
-    emit_progress("ffmpeg", "Adding subtitles to video using FFmpeg")
+    # Generate audio if enabled
+    audio_path = None
+    if enable_audio:
+        try:
+            from services.audio_generator import generate_audio_from_segments
+
+            emit_progress("audio", "Generating audio narration using TTS")
+            audio_path = temp_path / "narration.wav"
+            logger.info(f"Generating audio narration at: {audio_path}")
+
+            await generate_audio_from_segments(
+                segments=segments,
+                output_path=str(audio_path),
+                speaker_id=audio_speaker_id,
+                language=audio_language,
+                base_speed=audio_speed,
+                progress_callback=progress_callback
+            )
+
+            logger.info("Audio narration generated successfully")
+            emit_progress("audio", "Audio narration generated successfully")
+        except Exception as e:
+            logger.error(f"Failed to generate audio narration: {e}")
+            raise RuntimeError(f"Audio generation failed: {e}")
+
+    # Add subtitles (and audio if available) to video
+    if audio_path:
+        emit_progress("ffmpeg", "Mixing audio and adding subtitles to video")
+    else:
+        emit_progress("ffmpeg", "Adding subtitles to video using FFmpeg")
+
     video_path_obj = Path(video_path)
     output_path = video_path_obj.parent / f"{video_path_obj.stem}_subtitled{video_path_obj.suffix}"
-    logger.info("Adding subtitles to video using FFmpeg...")
+    logger.info("Processing video with FFmpeg...")
     logger.info(f"Input video: {video_path}")
     logger.info(f"Output video: {output_path}")
+    if audio_path:
+        logger.info(f"Audio file: {audio_path}")
 
     await add_subtitles_to_video(
         video_path,
         str(srt_path),
         str(output_path),
         subtitle_style,
-        font_size
+        font_size,
+        str(audio_path) if audio_path else None
     )
 
-    logger.info("Subtitles added successfully!")
-    logger.info(f"Final video with subtitles: {output_path}")
+    logger.info("Video processing complete!")
+    logger.info(f"Final video: {output_path}")
     return str(output_path)

@@ -105,7 +105,7 @@ async def validate_manim_structure(code: str) -> ValidationResult:
 async def validate_manim_dry_run(
     code: str,
     progress_callback: Optional[Callable[[str, str], None]] = None,
-    timeout: int = 180  # 3 minutes default timeout
+    timeout: int = 600  # 10 minutes default timeout
 ) -> ValidationResult:
     """
     Run Manim with --dry_run flag to validate without rendering.

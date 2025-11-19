@@ -44,7 +44,11 @@ async def _render_video_background(
     prompt: str,
     model: str,
     subtitle_style: str | None,
-    subtitle_font_size: int
+    subtitle_font_size: int,
+    enable_audio: bool,
+    audio_language: str,
+    audio_speaker_id: int,
+    audio_speed: float
 ):
     """Background task to render video and update session with progress."""
     session = session_manager.get_session(session_id)
@@ -98,6 +102,10 @@ async def _render_video_background(
             model=model,
             subtitle_style=subtitle_style,
             subtitle_font_size=subtitle_font_size,
+            enable_audio=enable_audio,
+            audio_language=audio_language,
+            audio_speaker_id=audio_speaker_id,
+            audio_speed=audio_speed,
             progress_callback=update_progress
         )
 
@@ -308,7 +316,11 @@ async def render_session_code(request: RenderRequest, background_tasks: Backgrou
         prompt=session.prompt,
         model=request.model,
         subtitle_style=request.subtitle_style,
-        subtitle_font_size=request.subtitle_font_size
+        subtitle_font_size=request.subtitle_font_size,
+        enable_audio=request.enable_audio,
+        audio_language=request.audio_language,
+        audio_speaker_id=request.audio_speaker_id,
+        audio_speed=request.audio_speed
     )
 
     return {

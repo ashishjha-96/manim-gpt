@@ -23,6 +23,10 @@ async def render_manim_video(
     model: Optional[str] = "cerebras/zai-glm-4.6",
     subtitle_style: Optional[str] = None,
     subtitle_font_size: int = 24,
+    enable_audio: bool = False,
+    audio_language: str = "EN",
+    audio_speaker_id: int = 0,
+    audio_speed: float = 1.0,
     progress_callback: Optional[Callable[[str, str], None]] = None,
     timeout: int = 600  # 10 minutes default timeout
 ) -> tuple[str, str]:
@@ -39,6 +43,10 @@ async def render_manim_video(
         model: LLM model for subtitle generation
         subtitle_style: Optional custom subtitle style (ASS format). If provided, subtitle_font_size is ignored.
         subtitle_font_size: Font size for subtitles (default: 24)
+        enable_audio: Whether to generate audio narration using TTS
+        audio_language: Language code for TTS (EN, ES, FR, ZH, JP, KR)
+        audio_speaker_id: Speaker voice ID for TTS
+        audio_speed: Base speech speed multiplier for TTS
         progress_callback: Optional callback function(status, message) for progress updates
         timeout: Maximum time in seconds to wait for rendering (default: 600)
 
@@ -222,6 +230,8 @@ async def render_manim_video(
                     stage_mapping = {
                         "narration": "generating_subtitles",
                         "srt": "creating_srt",
+                        "audio": "generating_audio",
+                        "generating_audio": "generating_audio",
                         "ffmpeg": "stitching_subtitles"
                     }
                     mapped_stage = stage_mapping.get(stage, "generating_subtitles")
@@ -235,6 +245,10 @@ async def render_manim_video(
                     model=model,
                     subtitle_style=subtitle_style,
                     font_size=subtitle_font_size,
+                    enable_audio=enable_audio,
+                    audio_language=audio_language,
+                    audio_speaker_id=audio_speaker_id,
+                    audio_speed=audio_speed,
                     progress_callback=subtitle_progress_callback
                 )
                 logger.info(f"Subtitle generation completed! New video path: {final_video_path}")

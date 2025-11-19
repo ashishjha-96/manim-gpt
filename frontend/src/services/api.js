@@ -114,13 +114,29 @@ class ManimAPI {
   /**
    * Render video from session (async - returns immediately, use pollRenderStatus to track progress)
    */
-  async renderVideo(sessionId, format = 'mp4', quality = 'medium', backgroundColor = null, includeSubtitles = true, subtitleFontSize = 24, subtitleStyle = null) {
+  async renderVideo(
+    sessionId,
+    format = 'mp4',
+    quality = 'medium',
+    backgroundColor = null,
+    includeSubtitles = true,
+    subtitleFontSize = 24,
+    subtitleStyle = null,
+    enableAudio = false,
+    audioLanguage = 'EN',
+    audioSpeakerId = 0,
+    audioSpeed = 1.0
+  ) {
     const body = {
       session_id: sessionId,
       format,
       quality,
       include_subtitles: includeSubtitles,
       subtitle_font_size: subtitleFontSize,
+      enable_audio: enableAudio,
+      audio_language: audioLanguage,
+      audio_speaker_id: audioSpeakerId,
+      audio_speed: audioSpeed,
     };
 
     if (backgroundColor) {

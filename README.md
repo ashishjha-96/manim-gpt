@@ -45,7 +45,8 @@ uv run gradio_app.py
 ## Features
 
 - **AI-Powered Code Generation**: Generate Manim animation code from natural language prompts
-- **Code Narration Subtitles**: Automatically generate educational narration subtitles that explain the animation (NEW!)
+- **Code Narration Subtitles**: Automatically generate educational narration subtitles that explain the animation
+- **Text-to-Speech Audio Narration**: Generate synchronized audio narration using Piper TTS (Microsoft Neural TTS)
 - **Iterative Code Refinement**: Automatic error detection and correction with LangGraph workflow
 - **Real-time Streaming Updates**: Watch the generation process with live iteration logs
 - **Manual Code Editing**: Fix errors yourself with built-in validation support
@@ -90,10 +91,17 @@ The easiest way to get started is using Nix, which provides all system dependenc
    - Graphics libraries (Cairo, Pango, Fontconfig, Freetype)
    - All required development tools
 
-4. **Install Python dependencies**:
+4. **Install Python dependencies** (includes Piper TTS for audio narration):
    ```bash
    uv sync
    ```
+
+   This will automatically install:
+   - All core dependencies
+   - Piper TTS for high-quality TTS audio narration
+   - All required audio processing libraries
+
+   See [TTS_INSTALLATION.md](TTS_INSTALLATION.md) for detailed Piper TTS information.
 
 5. **Set up environment variables**:
    ```bash
@@ -421,6 +429,48 @@ video_response = requests.get(
 
 with open("animation.mp4", "wb") as f:
     f.write(video_response.content)
+```
+
+### Generate Video with Audio Narration
+
+**NEW!** Generate videos with synchronized text-to-speech audio narration:
+
+```bash
+# Using curl
+curl -X POST "http://localhost:8000/video/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain the Pythagorean theorem with a visual proof",
+    "format": "mp4",
+    "quality": "high",
+    "include_subtitles": true,
+    "enable_audio": true,
+    "audio_language": "EN",
+    "audio_speaker_id": 0,
+    "audio_speed": 1.0
+  }'
+```
+
+```python
+# Using Python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/video/generate",
+    json={
+        "prompt": "Show the quadratic formula with step-by-step derivation",
+        "include_subtitles": True,    # Enable subtitles
+        "enable_audio": True,          # Enable TTS audio
+        "audio_language": "EN",        # Language: EN, ES, FR, ZH, JP, KR
+        "audio_speaker_id": 0,         # Speaker voice (0-10)
+        "audio_speed": 1.0             # Speed multiplier (0.5-2.0)
+    }
+)
+
+# The generated video will have:
+# 1. Visual animation
+# 2. Subtitle text explaining what's happening
+# 3. Synchronized audio narration speaking the subtitle text
 
 print("Video saved as animation.mp4")
 ```

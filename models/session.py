@@ -24,6 +24,8 @@ class RenderStatus(str, Enum):
     RENDERING_VIDEO = "rendering_video"
     GENERATING_SUBTITLES = "generating_subtitles"
     CREATING_SRT = "creating_srt"
+    GENERATING_AUDIO = "generating_audio"
+    MIXING_AUDIO = "mixing_audio"
     STITCHING_SUBTITLES = "stitching_subtitles"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -135,6 +137,10 @@ class RenderRequest(BaseModel):
     subtitle_style: Optional[str] = Field(default=None, description="Custom subtitle style in ASS format")
     subtitle_font_size: int = Field(default=24, description="Font size for subtitles (default: 24). Ignored if subtitle_style is provided.", ge=8, le=72)
     model: Optional[str] = Field(default="cerebras/zai-glm-4.6", description="LLM model for subtitle generation")
+    enable_audio: bool = Field(default=False, description="Generate audio narration using TTS (requires include_subtitles=True)")
+    audio_language: Literal["EN", "ES", "FR", "ZH", "JP", "KR"] = Field(default="EN", description="Language for TTS narration")
+    audio_speaker_id: int = Field(default=0, ge=0, le=10, description="Speaker voice ID for TTS")
+    audio_speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier for TTS")
 
 
 class ManualCodeUpdateRequest(BaseModel):

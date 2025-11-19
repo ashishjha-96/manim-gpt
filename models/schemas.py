@@ -24,6 +24,10 @@ class VideoGenerationRequest(BaseModel):
     background_color: Optional[str] = Field(default=None, description="Background color (e.g., '#000000', 'WHITE')")
     include_subtitles: bool = Field(default=False, description="Generate and add narration subtitles to the video")
     subtitle_style: Optional[str] = Field(default=None, description="Custom subtitle style in ASS format")
+    enable_audio: bool = Field(default=False, description="Generate audio narration using TTS (requires include_subtitles=True)")
+    audio_language: Literal["EN", "ES", "FR", "ZH", "JP", "KR"] = Field(default="EN", description="Language for TTS narration")
+    audio_speaker_id: int = Field(default=0, ge=0, le=10, description="Speaker voice ID for TTS")
+    audio_speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier for TTS")
 
 
 class VideoGenerationResponse(BaseModel):

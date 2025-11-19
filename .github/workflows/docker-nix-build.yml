@@ -1,0 +1,104 @@
+name: Build Docker Image with Nix
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  nix-docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v24
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v13
+        with:
+          name: manim-gpt
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+
+      - name: Check Nix flake
+        run: nix flake check --impure
+
+      - name: Build Docker image with Nix
+        run: |
+          nix build .#dockerImage --impure -L
+          docker load < result
+
+      - name: Get image name and tag
+        id: image-info
+        run: |
+          IMAGE_ID=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -n1)
+          echo "image_id=$IMAGE_ID" >> $GITHUB_OUTPUT
+          echo "Built image: $IMAGE_ID"
+
+      - name: Tag image for registry
+        run: |
+          # Tag for GitHub Container Registry
+          docker tag ${{ steps.image-info.outputs.image_id }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-latest
+
+          # Tag with version if this is a tag push
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            docker tag ${{ steps.image-info.outputs.image_id }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-${VERSION}
+          fi
+
+          # Tag with branch name
+          if [[ "${{ github.ref }}" == refs/heads/* ]]; then
+            BRANCH=${GITHUB_REF#refs/heads/}
+            docker tag ${{ steps.image-info.outputs.image_id }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-${BRANCH}
+          fi
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker images
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-latest
+
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-${VERSION}
+          fi
+
+          if [[ "${{ github.ref }}" == refs/heads/* ]]; then
+            BRANCH=${GITHUB_REF#refs/heads/}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nix-${BRANCH}
+          fi
+
+      - name: Image digest
+        if: github.event_name != 'pull_request'
+        run: |
+          docker images --digests ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
