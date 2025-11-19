@@ -75,7 +75,9 @@ class SessionState(BaseModel):
     current_iteration: int = 0
     iterations: List[CodeIteration] = Field(default_factory=list)
     status: IterationStatus = IterationStatus.GENERATING
-    final_code: Optional[str] = None
+    generated_code: Optional[str] = None  # Current/intermediate generated code
+    final_code: Optional[str] = None  # Final validated code
+    error_message: Optional[str] = None  # Error message if generation failed
     rendered_video_path: Optional[str] = None  # Path to rendered video file
 
     # Render tracking
@@ -116,15 +118,24 @@ class SessionContinueRequest(BaseModel):
 
 
 class SessionStatusResponse(BaseModel):
-    """Response with current session status."""
+    """Response with current session status (unified for generation and render)."""
     session_id: str
     status: IterationStatus
     current_iteration: int
     max_iterations: int
     iterations_history: List[CodeIteration]
-    final_code: Optional[str] = None
+    generated_code: Optional[str] = None  # Current/intermediate generated code
+    final_code: Optional[str] = None  # Final validated code
+    error_message: Optional[str] = None  # Error message if generation failed
     created_at: datetime
     updated_at: datetime
+    # Render status fields
+    render_status: Optional[RenderStatus] = None
+    render_progress: Optional[List[RenderProgress]] = None
+    rendered_video_path: Optional[str] = None
+    render_error: Optional[str] = None
+    render_started_at: Optional[datetime] = None
+    render_completed_at: Optional[datetime] = None
 
 
 class RenderRequest(BaseModel):

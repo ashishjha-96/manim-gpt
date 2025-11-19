@@ -26,6 +26,7 @@ from services.session_manager import session_manager
 from services.iterative_workflow import run_iterative_generation, run_iterative_generation_streaming
 from services.video_rendering import render_manim_video
 from services.code_validator import validate_code
+from services.session_updater import SessionUpdater
 from utils.logger import get_logger
 
 # Create logger for API routes
@@ -50,46 +51,24 @@ async def _render_video_background(
     audio_speaker_id: int,
     audio_speed: float
 ):
-    """Background task to render video and update session with progress."""
-    session = session_manager.get_session(session_id)
-    if not session:
-        logger.error(f"Session {session_id} not found during background render")
-        return
-
+    """Background task to render video and update session with progress using SessionUpdater."""
     temp_dir = None
 
-    def update_progress(status: str, message: str):
-        """Update session with render progress."""
-        nonlocal session
-        try:
-            # Map status string to RenderStatus enum
-            try:
-                render_status = RenderStatus(status)
-            except ValueError:
-                # If status doesn't match enum, default to rendering_video
-                render_status = RenderStatus.RENDERING_VIDEO
-
-            session.render_status = render_status
-            session.render_progress.append(RenderProgress(
-                status=render_status,
-                message=message,
-                timestamp=datetime.utcnow()
-            ))
-            session_manager.update_session(session)
-            logger.info(f"[Render {session_id}] {status}: {message}")
-        except Exception as e:
-            logger.error(f"Error updating progress: {e}")
-
     try:
+        # Initialize session updater
+        updater = SessionUpdater(session_id)
+
+        # Progress callback using SessionUpdater
+        def update_progress(status: str, message: str):
+            """Update session with render progress."""
+            try:
+                updater.update_render_progress(status, message)
+            except Exception as e:
+                logger.error(f"Error updating render progress: {e}")
+
         # Mark render as started
-        session.render_status = RenderStatus.PREPARING
-        session.render_started_at = datetime.utcnow()
-        session.render_progress = [RenderProgress(
-            status=RenderStatus.PREPARING,
-            message="Starting video render",
-            timestamp=datetime.utcnow()
-        )]
-        session_manager.update_session(session)
+        updater.update_render_started()
+        logger.info(f"[Render {session_id}] Starting render")
 
         # Render the video with progress tracking
         video_path, temp_dir = await render_manim_video(
@@ -110,16 +89,7 @@ async def _render_video_background(
         )
 
         # Update session with success
-        session.rendered_video_path = video_path
-        session.render_status = RenderStatus.COMPLETED
-        session.render_completed_at = datetime.utcnow()
-        session.render_progress.append(RenderProgress(
-            status=RenderStatus.COMPLETED,
-            message="Video rendered successfully",
-            timestamp=datetime.utcnow()
-        ))
-        session_manager.update_session(session)
-
+        updater.update_render_complete(video_path)
         logger.info(f"[Render {session_id}] Completed successfully: {video_path}")
 
     except Exception as e:
@@ -128,20 +98,104 @@ async def _render_video_background(
         logger.error(f"[Render {session_id}] Failed: {error_msg}")
         logger.debug(traceback.format_exc())
 
-        session.render_status = RenderStatus.FAILED
-        session.render_error = error_msg
-        session.render_completed_at = datetime.utcnow()
-        session.render_progress.append(RenderProgress(
-            status=RenderStatus.FAILED,
-            message=f"Render failed: {error_msg}",
-            timestamp=datetime.utcnow(),
-            error=error_msg
-        ))
-        session_manager.update_session(session)
+        try:
+            updater = SessionUpdater(session_id)
+            updater.update_render_error(error_msg)
+        except Exception as update_error:
+            logger.error(f"Failed to update session with render error: {update_error}")
 
         # Clean up temp directory on error
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def _generate_code_background(
+    session_id: str,
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_iterations: int
+):
+    """Background task to run code generation and update session with progress."""
+    try:
+        # Initialize session updater
+        updater = SessionUpdater(session_id)
+        updater.update_generation_started()
+
+        logger.info(f"[Generate {session_id}] Starting background generation")
+
+        # Define progress callback to update session in real-time
+        async def progress_callback(workflow_data: dict):
+            """Update session state as workflow progresses."""
+            try:
+                updater_local = SessionUpdater(session_id)
+
+                # Update with current iteration data
+                current_iter = workflow_data.get("current_iteration", 0)
+                status = workflow_data.get("status", IterationStatus.GENERATING)
+                code = workflow_data.get("generated_code")
+                validation = workflow_data.get("validation_result")
+
+                # Get the latest iteration from history if available
+                iterations_history = workflow_data.get("iterations_history", [])
+                if iterations_history:
+                    latest_iteration = iterations_history[-1]
+                    updater_local.update_generation_iteration(
+                        iteration=latest_iteration.iteration_number,
+                        status=latest_iteration.status,
+                        code=latest_iteration.generated_code,
+                        validation_result=latest_iteration.validation_result,
+                        generation_metrics=latest_iteration.generation_metrics,
+                        validation_metrics=latest_iteration.validation_metrics
+                    )
+                else:
+                    # Update basic status even if no iteration yet
+                    session = session_manager.get_session(session_id)
+                    if session:
+                        session.status = status
+                        session.current_iteration = current_iter
+                        if code:
+                            session.generated_code = code
+                        session_manager.update_session(session)
+
+                logger.debug(f"[Generate {session_id}] Progress: iter={current_iter}, status={status}")
+            except Exception as e:
+                logger.error(f"[Generate {session_id}] Error in progress callback: {e}")
+
+        # Run iterative generation WITH progress callback
+        workflow_state = await run_iterative_generation(
+            session_id=session_id,
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations,
+            progress_callback=progress_callback
+        )
+
+        # Update session with final results
+        final_code = workflow_state.get("generated_code", "")
+        status = workflow_state.get("status", IterationStatus.FAILED)
+
+        # Mark as complete
+        updater.update_generation_complete(
+            final_code=final_code,
+            status=status
+        )
+
+        logger.info(f"[Generate {session_id}] Completed with status: {status}")
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[Generate {session_id}] Failed: {error_msg}")
+        logger.debug(traceback.format_exc())
+
+        try:
+            updater = SessionUpdater(session_id)
+            updater.update_generation_error(error_msg)
+        except Exception as update_error:
+            logger.error(f"Failed to update session with error: {update_error}")
 
 
 @router.post("/generate", response_model=IterativeGenerationResponse)
@@ -225,16 +279,74 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
         )
 
 
+@router.post("/generate-async")
+async def start_generation_async(request: IterativeGenerationRequest, background_tasks: BackgroundTasks):
+    """
+    Start a new iterative code generation session asynchronously (background task).
+
+    This endpoint returns immediately with a "queued" status. The UI should either:
+    - Connect to /session/{session_id}/sse for real-time updates (NDJSON stream)
+    - Poll /session/status/{session_id} to track progress
+
+    Args:
+        request: IterativeGenerationRequest with prompt and generation options
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Status indicating generation has been queued with session_id
+    """
+    try:
+        # Create session
+        session = session_manager.create_session(
+            prompt=request.prompt,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            max_iterations=request.max_iterations
+        )
+
+        logger.info(f"Created session {session.session_id} for async generation")
+
+        # Start background generation task
+        background_tasks.add_task(
+            _generate_code_background,
+            session_id=session.session_id,
+            prompt=request.prompt,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            max_iterations=request.max_iterations
+        )
+
+        return {
+            "status": "queued",
+            "session_id": session.session_id,
+            "message": "Generation job queued. Connect to /session/{session_id}/sse for real-time updates or poll /session/status/{session_id}."
+        }
+
+    except Exception as e:
+        logger.error(f"Error starting async generation: {str(e)}")
+        logger.debug(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error starting async generation: {str(e)}"
+        )
+
+
 @router.get("/status/{session_id}", response_model=SessionStatusResponse)
 async def get_session_status(session_id: str):
     """
-    Get the status of an existing session.
+    Get the unified status of an existing session (generation + render).
+
+    This endpoint returns complete session state including both generation
+    progress and render progress. It replaces the need for separate
+    /session/render-status endpoint.
 
     Args:
         session_id: Session ID from the generate endpoint
 
     Returns:
-        SessionStatusResponse with full session details
+        SessionStatusResponse with full session details including render status
     """
     session = session_manager.get_session(session_id)
 
@@ -250,9 +362,244 @@ async def get_session_status(session_id: str):
         current_iteration=session.current_iteration,
         max_iterations=session.max_iterations,
         iterations_history=session.iterations,
+        generated_code=session.generated_code,
         final_code=session.final_code,
+        error_message=session.error_message,
         created_at=session.created_at,
-        updated_at=session.updated_at
+        updated_at=session.updated_at,
+        # Render fields
+        render_status=session.render_status,
+        render_progress=session.render_progress,
+        rendered_video_path=session.rendered_video_path,
+        render_error=session.render_error,
+        render_started_at=session.render_started_at,
+        render_completed_at=session.render_completed_at
+    )
+
+
+@router.get("/{session_id}/sse")
+async def session_sse_stream(session_id: str):
+    """
+    Unified Server-Sent Events stream for session updates (SSE format).
+
+    This endpoint provides real-time updates for BOTH generation and render progress
+    in a single stream. The stream sends standard SSE format with 'data:' prefix,
+    where each event is: data: {json}\n\n
+
+    This replaces the need for separate streaming and polling endpoints.
+
+    Event types:
+    - generation_started: Generation has started
+    - generation_progress: Iteration progress
+    - generation_complete: Generation finished
+    - generation_error: Generation failed
+    - render_started: Render has started
+    - render_progress: Render progress update
+    - render_complete: Render finished
+    - render_error: Render failed
+    - session_not_found: Session doesn't exist
+
+    Args:
+        session_id: Session ID to stream updates for
+
+    Returns:
+        StreamingResponse with NDJSON stream
+    """
+
+    async def event_generator():
+        """Generator for SSE events."""
+        # Check if session exists
+        session = session_manager.get_session(session_id)
+        if not session:
+            error_event = {
+                "event": "session_not_found",
+                "session_id": session_id,
+                "message": f"Session {session_id} not found"
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+            return
+
+        # Send initial session state
+        try:
+            updater = SessionUpdater(session_id)
+            initial_state = updater.get_current_state()
+            initial_event = {
+                "event": "session_connected",
+                "session_id": session_id,
+                "state": initial_state
+            }
+            yield f"data: {json.dumps(initial_event)}\n\n"
+        except Exception as e:
+            logger.error(f"Error getting initial state: {e}")
+
+        # Track last known state to detect changes (using JSON serialization for deep comparison)
+        last_state_json = None
+        last_update_time = None
+        last_heartbeat_time = datetime.utcnow()
+        heartbeat_interval = 10  # Send heartbeat every 10 seconds if no updates
+
+        # Stream updates (poll session for changes)
+        try:
+            while True:
+                session = session_manager.get_session(session_id)
+
+                if not session:
+                    # Session was deleted
+                    error_event = {
+                        "event": "session_deleted",
+                        "session_id": session_id
+                    }
+                    yield f"data: {json.dumps(error_event)}\n\n"
+                    break
+
+                # Get current state
+                try:
+                    updater = SessionUpdater(session_id)
+                    current_state = updater.get_current_state()
+
+                    # Serialize state for comparison
+                    current_state_json = json.dumps(current_state, sort_keys=True, default=str)
+
+                    # Check if state changed (compare JSON strings or updated_at timestamp)
+                    state_changed = current_state_json != last_state_json or session.updated_at != last_update_time
+
+                    # Send heartbeat if no updates for heartbeat_interval seconds
+                    now = datetime.utcnow()
+                    time_since_last_heartbeat = (now - last_heartbeat_time).total_seconds()
+                    should_send_heartbeat = time_since_last_heartbeat >= heartbeat_interval
+
+                    if state_changed:
+                        # Determine event type based on status changes
+                        event_type = "update"
+
+                        # Generation events
+                        if session.status == IterationStatus.GENERATING:
+                            event_type = "generation_progress"
+                        elif session.status == IterationStatus.VALIDATING:
+                            event_type = "generation_progress"
+                        elif session.status == IterationStatus.REFINING:
+                            event_type = "generation_progress"
+                        elif session.status == IterationStatus.SUCCESS:
+                            event_type = "generation_complete"
+                        elif session.status == IterationStatus.MAX_ITERATIONS_REACHED:
+                            event_type = "generation_complete"
+                        elif session.status == IterationStatus.FAILED:
+                            event_type = "generation_error"
+
+                        # Render events (override generation if render is active)
+                        if session.render_status:
+                            if session.render_status == RenderStatus.QUEUED:
+                                event_type = "render_queued"
+                            elif session.render_status == RenderStatus.PREPARING:
+                                event_type = "render_started"
+                            elif session.render_status in [
+                                RenderStatus.RENDERING_VIDEO,
+                                RenderStatus.GENERATING_SUBTITLES,
+                                RenderStatus.CREATING_SRT,
+                                RenderStatus.GENERATING_AUDIO,
+                                RenderStatus.MIXING_AUDIO,
+                                RenderStatus.STITCHING_SUBTITLES
+                            ]:
+                                event_type = "render_progress"
+                            elif session.render_status == RenderStatus.COMPLETED:
+                                event_type = "render_complete"
+                            elif session.render_status == RenderStatus.FAILED:
+                                event_type = "render_error"
+
+                        # Send update event
+                        update_event = {
+                            "event": event_type,
+                            "session_id": session_id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "state": current_state
+                        }
+                        yield f"data: {json.dumps(update_event)}\n\n"
+
+                        last_state_json = current_state_json
+                        last_update_time = session.updated_at
+                        last_heartbeat_time = now  # Reset heartbeat timer on state change
+
+                        # Check if session is in a terminal state
+                        terminal_generation = session.status in [
+                            IterationStatus.SUCCESS,
+                            IterationStatus.MAX_ITERATIONS_REACHED,
+                            IterationStatus.FAILED
+                        ]
+                        terminal_render = session.render_status in [
+                            RenderStatus.COMPLETED,
+                            RenderStatus.FAILED,
+                            None
+                        ]
+
+                        # Close stream if:
+                        # 1. Both generation and render are done (if render was started)
+                        # 2. Generation is done and render was never started (None)
+                        should_close = False
+                        if terminal_generation:
+                            if session.render_status is None:
+                                # No render requested, close after generation
+                                should_close = True
+                            elif terminal_render and session.render_status in [RenderStatus.COMPLETED, RenderStatus.FAILED]:
+                                # Render finished (success or failure), close
+                                should_close = True
+
+                        if should_close:
+                            # Send final done event
+                            done_event = {
+                                "event": "done",
+                                "session_id": session_id,
+                                "message": "Session complete"
+                            }
+                            yield f"data: {json.dumps(done_event)}\n\n"
+                            break
+
+                    elif should_send_heartbeat:
+                        # Send keepalive heartbeat to prevent client timeout
+                        # This is especially important during long operations like validation
+                        heartbeat_event = {
+                            "event": "heartbeat",
+                            "session_id": session_id,
+                            "timestamp": now.isoformat(),
+                            "status": current_state.get("status"),
+                            "message": "Keepalive - session is still processing"
+                        }
+                        yield f"data: {json.dumps(heartbeat_event)}\n\n"
+                        last_heartbeat_time = now
+                        logger.debug(f"Sent heartbeat for session {session_id}")
+
+                except Exception as e:
+                    logger.error(f"Error in SSE stream: {e}")
+                    error_event = {
+                        "event": "error",
+                        "session_id": session_id,
+                        "error": str(e)
+                    }
+                    yield f"data: {json.dumps(error_event)}\n\n"
+
+                # Poll interval - use shorter interval for more responsive updates
+                await asyncio.sleep(0.2)
+
+        except asyncio.CancelledError:
+            # Client disconnected
+            logger.info(f"SSE stream cancelled for session {session_id}")
+        except Exception as e:
+            logger.error(f"Fatal error in SSE stream: {e}")
+            error_event = {
+                "event": "fatal_error",
+                "session_id": session_id,
+                "error": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",  # Use SSE media type to prevent buffering
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked"
+        }
     )
 
 
@@ -326,47 +673,8 @@ async def render_session_code(request: RenderRequest, background_tasks: Backgrou
     return {
         "status": "queued",
         "session_id": request.session_id,
-        "message": "Render job queued. Poll /session/render-status/{session_id} for progress."
+        "message": "Render job queued. Connect to /session/{session_id}/sse for real-time updates or poll /session/status/{session_id}."
     }
-
-
-@router.get("/render-status/{session_id}", response_model=RenderStatusResponse)
-async def get_render_status(session_id: str):
-    """
-    Get the current render status for a session.
-
-    Use this endpoint to poll for render progress after calling /session/render.
-
-    Args:
-        session_id: Session ID
-
-    Returns:
-        RenderStatusResponse with current render status and progress
-    """
-    session = session_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session {session_id} not found"
-        )
-
-    # Calculate elapsed time if render has started
-    elapsed_time = None
-    if session.render_started_at:
-        end_time = session.render_completed_at or datetime.utcnow()
-        elapsed_time = (end_time - session.render_started_at).total_seconds()
-
-    return RenderStatusResponse(
-        session_id=session_id,
-        render_status=session.render_status or RenderStatus.QUEUED,
-        progress=session.render_progress,
-        video_path=session.rendered_video_path,
-        started_at=session.render_started_at,
-        completed_at=session.render_completed_at,
-        error=session.render_error,
-        elapsed_time=elapsed_time
-    )
 
 
 @router.get("/download")
@@ -533,93 +841,6 @@ async def list_sessions():
             for s in sessions
         ]
     }
-
-
-@router.post("/generate-stream")
-async def start_iterative_generation_stream(request: IterativeGenerationRequest):
-    """
-    Start a new iterative code generation session with Server-Sent Events streaming.
-
-    This endpoint streams real-time progress updates including:
-    - Each iteration's generated code
-    - Validation results and errors
-    - Current status and progress
-
-    Returns a stream of JSON objects with progress updates.
-    """
-
-    async def event_generator():
-        """Generator for Server-Sent Events."""
-        try:
-            # Create session
-            session = session_manager.create_session(
-                prompt=request.prompt,
-                model=request.model,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                max_iterations=request.max_iterations
-            )
-
-            logger.info(f"[Streaming] Created session {session.session_id}")
-
-            # Stream workflow progress
-            async for progress_data in run_iterative_generation_streaming(
-                session_id=session.session_id,
-                prompt=request.prompt,
-                model=request.model,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                max_iterations=request.max_iterations
-            ):
-                # Update session with latest progress
-                if progress_data.get("event") == "progress" or progress_data.get("event") == "complete":
-                    session.current_iteration = progress_data.get("current_iteration", 0)
-                    session.status = progress_data.get("status", IterationStatus.GENERATING)
-
-                    # Update iterations history
-                    iterations_history = progress_data.get("iterations_history", [])
-                    session.iterations = [
-                        CodeIteration(
-                            iteration_number=iter_data["iteration_number"],
-                            generated_code=iter_data["generated_code"],
-                            validation_result=iter_data["validation_result"],
-                            timestamp=datetime.fromisoformat(iter_data["timestamp"]),
-                            status=iter_data["status"]
-                        )
-                        for iter_data in iterations_history
-                    ]
-
-                    # Update final code if successful
-                    if session.status == IterationStatus.SUCCESS:
-                        session.final_code = progress_data.get("generated_code")
-
-                    session_manager.update_session(session)
-
-                # Send SSE event
-                yield f"data: {json.dumps(progress_data)}\n\n"
-
-            # Send final done event
-            yield f"data: {json.dumps({'event': 'done', 'session_id': session.session_id})}\n\n"
-
-        except Exception as e:
-            logger.error(f"[Streaming] Error: {str(e)}")
-            logger.debug(traceback.format_exc())
-            error_data = {
-                "event": "error",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
-        }
-    )
 
 
 @router.post("/update-code", response_model=ManualCodeUpdateResponse)

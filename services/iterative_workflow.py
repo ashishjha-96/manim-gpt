@@ -187,14 +187,69 @@ async def validate_code_node(state: WorkflowState) -> dict:
     """
     Node that validates the generated Manim code.
     Runs syntax checks and Manim dry-run.
+
+    NOTE: Validation can take a long time (30-60+ seconds for complex animations).
+    We ensure the session is updated before validation starts so SSE clients
+    don't time out waiting for updates.
     """
     logger_validate.info(f"Validating code for iteration {state['current_iteration'] + 1}")
 
     code = state["generated_code"]
 
+    # Import here to avoid circular dependency
+    from services.session_updater import SessionUpdater
+
+    # Update session status to VALIDATING immediately (before the potentially slow validation)
+    # This ensures SSE clients see status updates even if validation takes 30-60+ seconds
+    try:
+        updater = SessionUpdater(state["session_id"])
+        updater.update_generation_iteration(
+            iteration=state["current_iteration"] + 1,
+            status=IterationStatus.VALIDATING,
+            code=code,
+            validation_result=None,  # Not yet available
+            generation_metrics=state.get("generation_metrics")
+        )
+        logger_validate.debug("Updated session to VALIDATING status before validation starts")
+    except Exception as e:
+        logger_validate.warning(f"Failed to update session before validation: {e}")
+
     # Track validation time
     start_time = time.time()
-    validation_result = await validate_code(code, dry_run=True)
+
+    # Run validation with periodic heartbeat updates to keep session alive
+    # This prevents the session from appearing stuck during long validations
+    validation_task = asyncio.create_task(validate_code(code, dry_run=True))
+    last_heartbeat = time.time()
+    heartbeat_interval = 5.0  # Update session every 5 seconds during validation
+
+    # Poll validation task and send periodic updates
+    while not validation_task.done():
+        try:
+            # Wait for task completion with short timeout
+            validation_result = await asyncio.wait_for(asyncio.shield(validation_task), timeout=heartbeat_interval)
+            break
+        except asyncio.TimeoutError:
+            # Task still running, send heartbeat update
+            # Since we timed out after heartbeat_interval seconds, we should send a heartbeat
+            current_time = time.time()
+            try:
+                # Update session to show validation is still in progress
+                # This triggers SSE stream to send updates to clients
+                updater = SessionUpdater(state["session_id"])
+                session = updater.session
+                if session:
+                    session.updated_at = datetime.utcnow()
+                    from services.session_manager import session_manager
+                    session_manager.update_session(session)
+                    logger_validate.debug(f"Sent validation heartbeat ({current_time - start_time:.1f}s elapsed)")
+                last_heartbeat = current_time
+            except Exception as e:
+                logger_validate.warning(f"Failed to send validation heartbeat: {e}")
+            continue
+
+    # Get result from completed task
+    validation_result = await validation_task
     end_time = time.time()
 
     # Create validation metrics
@@ -385,7 +440,8 @@ async def run_iterative_generation(
 
     # Execute workflow with streaming if callback provided
     if progress_callback:
-        # Stream events from workflow
+        # Stream events from workflow and accumulate final state
+        final_state = None
         async for event in workflow.astream(initial_state):
             # Extract node name and state from event
             if event:
@@ -404,8 +460,16 @@ async def run_iterative_generation(
                     }
                     await progress_callback(progress_data)
 
-        # Get final state
-        final_state = await workflow.ainvoke(initial_state)
+                    # Accumulate the most complete state
+                    if final_state is None:
+                        final_state = node_state
+                    else:
+                        # Merge states, preserving the most recent non-None values
+                        final_state = {**final_state, **{k: v for k, v in node_state.items() if v is not None}}
+
+        # If no events were received, fall back to invoke
+        if final_state is None:
+            final_state = await workflow.ainvoke(initial_state)
     else:
         # Execute workflow normally without streaming
         final_state = await workflow.ainvoke(initial_state)

@@ -35,13 +35,12 @@ class ManimAPI {
   }
 
   /**
-   * Start a generation session with SSE streaming
+   * Start a generation session asynchronously (background task)
    * @param {Object} params - Generation parameters
-   * @param {Function} onProgress - Callback for progress events
-   * @returns {Promise<Object>} - Final session data
+   * @returns {Promise<Object>} - Response with session_id and status "queued"
    */
-  async generateWithStreaming(params, onProgress) {
-    const response = await fetch(`${this.baseURL}/session/generate-stream`, {
+  async generateAsync(params) {
+    const response = await fetch(`${this.baseURL}/session/generate-async`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -53,36 +52,115 @@ class ManimAPI {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
+    return response.json();
+  }
+
+  /**
+   * Connect to unified SSE stream for session updates using EventSource API
+   * Provides real-time updates for both generation AND render progress
+   * Note: EventSource automatically handles SSE format ('data:' prefix)
+   * @param {string} sessionId - Session ID to stream
+   * @param {Function} onEvent - Callback for each event
+   * @returns {Function} - Cleanup function to close the connection
+   */
+  connectToSessionSSE(sessionId, onEvent) {
+    const url = `${this.baseURL}/session/${sessionId}/sse`;
+    const eventSource = new EventSource(url);
+
+    // EventSource automatically strips 'data:' prefix and parses SSE format
+    eventSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (onEvent) {
+          onEvent(data);
+        }
+      } catch (error) {
+        console.error('Error parsing SSE data:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE error:', error);
+      eventSource.close();
+      if (onEvent) {
+        onEvent({ event: 'error', error: 'SSE connection error' });
+      }
+    };
+
+    // Return cleanup function
+    return () => {
+      eventSource.close();
+    };
+  }
+
+  /**
+   * Manually stream SSE from session SSE endpoint
+   * Handles Server-Sent Events format with 'data:' prefix
+   * @param {string} sessionId - Session ID to stream
+   * @param {Function} onEvent - Callback for each event
+   * @returns {Promise<Function>} - Cleanup function to abort the stream
+   */
+  async streamSessionUpdates(sessionId, onEvent) {
+    const response = await fetch(`${this.baseURL}/session/${sessionId}/sse`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let finalData = null;
+    let isActive = true;
 
-    while (true) {
-      const { done, value } = await reader.read();
+    // Start reading stream
+    (async () => {
+      try {
+        while (isActive) {
+          const { done, value } = await reader.read();
 
-      if (done) break;
+          if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.slice(6));
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine) {
+              try {
+                // Handle SSE format: strip 'data: ' prefix if present
+                let jsonData = trimmedLine;
+                if (jsonData.startsWith('data: ')) {
+                  jsonData = jsonData.substring(6); // Remove 'data: ' prefix
+                }
 
-          if (data.event === 'complete' || data.event === 'error') {
-            finalData = data;
+                if (jsonData) {
+                  const data = JSON.parse(jsonData);
+                  if (onEvent) {
+                    onEvent(data);
+                  }
+                }
+              } catch (error) {
+                console.error('Error parsing SSE line:', error, line);
+              }
+            }
           }
-
-          if (onProgress) {
-            onProgress(data);
+        }
+      } catch (error) {
+        if (isActive) {
+          console.error('Stream error:', error);
+          if (onEvent) {
+            onEvent({ event: 'error', error: error.message });
           }
         }
       }
-    }
+    })();
 
-    return finalData;
+    // Return cleanup function
+    return () => {
+      isActive = false;
+      reader.cancel();
+    };
   }
 
   /**
@@ -158,30 +236,26 @@ class ManimAPI {
   }
 
   /**
-   * Get render status for a session
-   */
-  async getRenderStatus(sessionId) {
-    const response = await fetch(`${this.baseURL}/session/render-status/${sessionId}`);
-    return response.json();
-  }
-
-  /**
-   * Poll render status until completion or failure
+   * Poll unified session status (generation + render) until completion or failure
+   * Use this as an alternative to SSE streaming
    * @param {string} sessionId - Session ID
-   * @param {Function} onProgress - Callback for progress updates (receives RenderStatusResponse)
-   * @param {number} pollInterval - Polling interval in milliseconds (default: 4000)
-   * @returns {Promise<Object>} - Final render status
+   * @param {Function} onProgress - Callback for progress updates (receives SessionStatusResponse)
+   * @param {number} pollInterval - Polling interval in milliseconds (default: 2000)
+   * @returns {Promise<Object>} - Final session status
    */
-  async pollRenderStatus(sessionId, onProgress, pollInterval = 4000) {
+  async pollSessionStatus(sessionId, onProgress, pollInterval = 2000) {
     while (true) {
-      const status = await this.getRenderStatus(sessionId);
+      const status = await this.getSessionStatus(sessionId);
 
       if (onProgress) {
         onProgress(status);
       }
 
-      // Check if render is complete
-      if (status.render_status === 'completed' || status.render_status === 'failed') {
+      // Check if both generation and render are complete (or never started)
+      const generationComplete = ['success', 'max_iterations_reached', 'failed'].includes(status.status);
+      const renderComplete = !status.render_status || ['completed', 'failed'].includes(status.render_status);
+
+      if (generationComplete && renderComplete) {
         return status;
       }
 
