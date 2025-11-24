@@ -6,7 +6,7 @@
   # Use https://search.nixos.org/packages to find packages
   packages = [
     # pkgs.go
-    pkgs.python314
+    pkgs.python313
     pkgs.uv
     # Build dependencies for pycairo and manim
     pkgs.gcc

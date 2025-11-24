@@ -1,15 +1,15 @@
-# Docker & Nix Deployment Guide
+# Docker Deployment Guide
 
-Complete guide for building and deploying manim-gpt using Docker with Nix package manager.
+Complete guide for building and deploying manim-gpt using Docker.
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Building Docker Images](#building-docker-images)
-- [Using Docker Compose](#using-docker-compose)
+- [Running the Container](#running-the-container)
 - [GitHub Actions CI/CD](#github-actions-cicd)
-- [Nix Flakes](#nix-flakes)
 - [Environment Variables](#environment-variables)
+- [Advanced Usage](#advanced-usage)
 - [Troubleshooting](#troubleshooting)
 
 ## Quick Start
@@ -24,188 +24,162 @@ docker pull ghcr.io/YOUR_USERNAME/manim-gpt:latest
 docker run -d \
   --name manim-gpt \
   -p 8000:8000 \
-  -e OPENAI_API_KEY=your-key-here \
+  -p 5173:5173 \
+  --env-file .env \
   ghcr.io/YOUR_USERNAME/manim-gpt:latest
 
-# Access the API
-curl http://localhost:8000/health
+# Access the services
+curl http://localhost:8000/health  # API
+open http://localhost:5173          # Frontend UI
 ```
 
 ### Build and Run Locally
 
 ```bash
-# Using the build script (easiest)
-./build-nix-docker.sh --dockerfile --run
-
-# Or manually
+# Build the image
 docker build -t manim-gpt:latest .
-docker run -d -p 8000:8000 --env-file .env manim-gpt:latest
+
+# Run with environment file
+docker run -d \
+  -p 8000:8000 \
+  -p 5173:5173 \
+  --env-file .env \
+  --name manim-gpt \
+  manim-gpt:latest
+
+# View logs
+docker logs -f manim-gpt
 ```
 
 ## Building Docker Images
 
-### Option 1: Standard Dockerfile
+### Multi-Stage Debian Build
 
-Uses Nix package manager inside Docker for reproducible builds.
+The Dockerfile uses a multi-stage build process for optimal image size and security:
 
-```bash
-docker build -f Dockerfile -t manim-gpt:latest .
-```
+**Stage 1: Builder**
+- Full build environment with development headers
+- Builds Python packages with C extensions (pycairo, manimpango, moderngl)
+- Builds React frontend with Vite
+- Installs Node.js 20
 
-**Advantages:**
-- Standard Docker workflow
-- Multi-platform support (amd64, arm64)
-- Smaller final image size
-- Works with docker-compose
+**Stage 2: Runtime**
+- Minimal runtime environment (debian:bookworm-slim)
+- Only runtime libraries (no dev packages)
+- TeX Live for LaTeX rendering
+- FFmpeg for video processing
+- Both backend and frontend included
 
-### Option 2: Nix-optimized Dockerfile
-
-Optimized build using Nix features.
-
-```bash
-docker build -f Dockerfile.nix -t manim-gpt:nix .
-```
-
-**Advantages:**
-- Faster builds with Nix caching
-- Exact dependency reproducibility
-- Better layer caching
-
-### Option 3: Pure Nix Build (flake.nix)
-
-Build using Nix flakes for maximum reproducibility.
+### Build Command
 
 ```bash
-# Build the Docker image
-nix build .#dockerImage --impure
+# Standard build
+docker build -t manim-gpt:latest .
 
-# Load into Docker
-docker load < result
+# Build for specific platform
+docker build --platform linux/amd64 -t manim-gpt:latest .
+docker build --platform linux/arm64 -t manim-gpt:latest .
 
-# Tag and run
-docker tag manim-gpt:latest manim-gpt:nix
-docker run -d -p 8000:8000 manim-gpt:nix
+# Multi-platform build
+docker buildx build --platform linux/amd64,linux/arm64 -t manim-gpt:latest .
+
+# Build with no cache
+docker build --no-cache -t manim-gpt:latest .
 ```
 
-**Advantages:**
-- Complete reproducibility
-- Declarative dependencies
-- Works offline (after first build)
-- No Docker BuildKit required
+### Image Details
 
-### Using the Build Script
+**Included Components:**
+- Python 3.11 with all dependencies
+- Node.js 20 for frontend
+- TeX Live (latex-base, latex-extra, fonts, science packages)
+- FFmpeg for video processing
+- Ghostscript for PostScript/PDF
+- All graphics libraries (Cairo, Pango, Harfbuzz, Fontconfig, Freetype)
+- React frontend (Vite + Tailwind CSS)
+- FastAPI backend
 
-The `build-nix-docker.sh` script automates building and running:
+**Services:**
+- FastAPI backend on port 8000
+- React frontend on port 5173
+- Both services start automatically via startup script
+
+## Running the Container
+
+### Basic Run
 
 ```bash
-# Make executable
-chmod +x build-nix-docker.sh
-
-# Build with standard Dockerfile
-./build-nix-docker.sh --dockerfile
-
-# Build with Nix Dockerfile
-./build-nix-docker.sh --nix-docker
-
-# Build with Nix flakes
-./build-nix-docker.sh --flake
-
-# Build and run immediately
-./build-nix-docker.sh --dockerfile --run
-
-# Stop running container
-./build-nix-docker.sh --stop
+docker run -d \
+  --name manim-gpt \
+  -p 8000:8000 \
+  -p 5173:5173 \
+  --env-file .env \
+  manim-gpt:latest
 ```
 
-## Using Docker Compose
-
-### Start All Services
+### With Specific API Keys
 
 ```bash
-# Start backend only
-docker-compose up -d manim-gpt-api
-
-# Start backend + Gradio UI
-docker-compose up -d manim-gpt-api manim-gpt-gradio
-
-# Start all services (including React frontend)
-docker-compose up -d
+docker run -d \
+  --name manim-gpt \
+  -p 8000:8000 \
+  -p 5173:5173 \
+  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e CEREBRAS_API_KEY=... \
+  manim-gpt:latest
 ```
 
-### Configuration
-
-Edit `docker-compose.yml` or create a `.env` file:
+### With Volume Mounts
 
 ```bash
-# .env file
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-CEREBRAS_API_KEY=...
+# Persist generated videos
+docker run -d \
+  --name manim-gpt \
+  -p 8000:8000 \
+  -p 5173:5173 \
+  -v $(pwd)/media:/app/media \
+  -v /tmp/manim_videos:/tmp/manim_videos \
+  --env-file .env \
+  manim-gpt:latest
 ```
 
-### Managing Services
+### Container Management
 
 ```bash
 # View logs
-docker-compose logs -f manim-gpt-api
+docker logs manim-gpt
+docker logs -f manim-gpt  # Follow logs
 
-# Restart services
-docker-compose restart
+# Stop container
+docker stop manim-gpt
 
-# Stop all services
-docker-compose down
+# Start container
+docker start manim-gpt
 
-# Stop and remove volumes
-docker-compose down -v
+# Restart container
+docker restart manim-gpt
 
-# Rebuild and restart
-docker-compose up -d --build
+# Remove container
+docker rm manim-gpt
+
+# Execute command in running container
+docker exec -it manim-gpt bash
 ```
 
 ## GitHub Actions CI/CD
 
-This project includes comprehensive GitHub Actions workflows for automated building and publishing.
+### Automated Builds
 
-### Workflows
+The project includes GitHub Actions workflow for automated Docker builds:
 
-#### 1. **docker-build-push.yml** - Main Docker Build
-Triggers on: Push to main/develop, tags, PRs
-
-**Features:**
-- Multi-platform builds (amd64, arm64)
-- Automatic tagging (latest, version, SHA)
+**Workflow: `docker-build-push.yml`**
+- Triggers on: Push to main/develop, tags (v*), PRs
+- Multi-platform builds: linux/amd64, linux/arm64
+- Automatic tagging: latest, version, SHA
 - Publishes to GitHub Container Registry (GHCR)
 - Optional Docker Hub publishing
 - Build caching for faster builds
-
-#### 2. **docker-nix-build.yml** - Nix-based Build
-Triggers on: Push to main/develop, tags
-
-**Features:**
-- Pure Nix flake builds
-- Cachix integration for Nix cache
-- Reproducible builds
-- Separate image tags (nix-latest, nix-v1.0.0)
-
-#### 3. **release.yml** - Release Automation
-Triggers on: Version tags (v*)
-
-**Features:**
-- Creates GitHub releases with changelog
-- Builds both standard and Nix images
-- Generates SBOM (Software Bill of Materials)
-- Multi-platform support
-- Updates Docker Hub description
-
-#### 4. **ci.yml** - Continuous Integration
-Triggers on: All pushes and PRs
-
-**Features:**
-- Linting and formatting checks
-- Docker build tests
-- Nix flake validation
-- Security scanning (Trivy)
-- Container health checks
 
 ### Setup GitHub Actions
 
@@ -220,20 +194,12 @@ Triggers on: All pushes and PRs
    DOCKERHUB_TOKEN=your-access-token
    ```
 
-3. **Optional: Configure Cachix (for Nix caching):**
-   ```bash
-   # Create Cachix account and cache
-   # Add repository secret:
-   CACHIX_AUTH_TOKEN=your-token
-   ```
-
 ### Using Published Images
 
 ```bash
 # GitHub Container Registry
 docker pull ghcr.io/YOUR_USERNAME/manim-gpt:latest
 docker pull ghcr.io/YOUR_USERNAME/manim-gpt:v1.0.0
-docker pull ghcr.io/YOUR_USERNAME/manim-gpt:nix-latest
 
 # Docker Hub (if configured)
 docker pull YOUR_USERNAME/manim-gpt:latest
@@ -247,172 +213,133 @@ git tag v1.0.0
 git push origin v1.0.0
 
 # This automatically:
-# 1. Creates a GitHub release
-# 2. Builds Docker images
-# 3. Publishes to registries
-# 4. Generates SBOM
-```
-
-## Nix Flakes
-
-### Development Shell
-
-Enter a complete development environment with all dependencies:
-
-```bash
-nix develop --impure
-```
-
-This provides:
-- Python 3.14 + uv
-- FFmpeg
-- LaTeX (TeX Live)
-- Cairo, Pango, and graphics libraries
-- Node.js for frontend
-
-### Building with Nix
-
-```bash
-# Build the package
-nix build .#default --impure
-
-# Build Docker image
-nix build .#dockerImage --impure
-
-# Check flake
-nix flake check --impure
-
-# Update dependencies
-nix flake update
-```
-
-### Nix Commands Reference
-
-```bash
-# Show flake info
-nix flake show
-
-# Show package metadata
-nix flake metadata
-
-# Format Nix files
-nix fmt
-
-# Run in development shell
-nix develop --impure -c uvicorn main:app --reload
+# 1. Builds Docker image for amd64 and arm64
+# 2. Creates a GitHub release
+# 3. Publishes to container registries
+# 4. Tags with version and latest
 ```
 
 ## Environment Variables
 
 ### Required Variables
 
+At least one LLM provider API key is required:
+
 ```bash
-# At least one LLM provider API key
 OPENAI_API_KEY=sk-...
 # OR
 ANTHROPIC_API_KEY=sk-ant-...
 # OR
 CEREBRAS_API_KEY=...
+# OR
+GOOGLE_API_KEY=...
 ```
 
 ### Optional Variables
 
 ```bash
+# Logging
+LITELLM_LOG=INFO
+LITELLM_LOG_LEVEL=INFO
+
 # API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
+HOST=0.0.0.0
+PORT=8000
 
 # Manim Configuration
 MANIM_QUALITY=medium  # low, medium, high, 4k
 DEFAULT_FORMAT=mp4    # mp4, webm, gif, mov
 
 # LLM Configuration
-DEFAULT_MODEL=cerebras/zai-glm-4.6
+DEFAULT_MODEL=cerebras/llama-3.3-70b
 MAX_ITERATIONS=10
 ```
 
-### Setting Variables in Docker
+### Setting Variables
 
 ```bash
 # Method 1: Environment file
 docker run --env-file .env manim-gpt:latest
 
 # Method 2: Individual variables
-docker run -e OPENAI_API_KEY=sk-... manim-gpt:latest
+docker run \
+  -e OPENAI_API_KEY=sk-... \
+  -e LITELLM_LOG=INFO \
+  manim-gpt:latest
 
-# Method 3: Docker Compose
-# Add to docker-compose.yml under 'environment:'
+# Method 3: From host environment
+docker run --env OPENAI_API_KEY manim-gpt:latest
 ```
 
 ## Advanced Usage
-
-### Multi-stage Caching
-
-Build with layer caching for faster iterations:
-
-```bash
-# First build
-docker build --cache-from manim-gpt:latest -t manim-gpt:latest .
-
-# Subsequent builds use cache
-docker build --cache-from manim-gpt:latest -t manim-gpt:dev .
-```
-
-### Build Arguments
-
-```bash
-docker build \
-  --build-arg VERSION=1.0.0 \
-  --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-  -t manim-gpt:1.0.0 .
-```
-
-### Volume Mounts
-
-```bash
-# Persist generated videos
-docker run -d \
-  -v $(pwd)/media:/app/media \
-  -v /tmp/manim_videos:/tmp/manim_videos \
-  manim-gpt:latest
-
-# Mount custom code (development)
-docker run -d \
-  -v $(pwd)/api:/app/api \
-  -v $(pwd)/services:/app/services \
-  manim-gpt:latest
-```
 
 ### Resource Limits
 
 ```bash
 docker run -d \
+  --name manim-gpt \
   --memory=4g \
   --cpus=2 \
-  --name manim-gpt \
+  -p 8000:8000 \
+  -p 5173:5173 \
   manim-gpt:latest
+```
+
+### Network Configuration
+
+```bash
+# Create custom network
+docker network create manim-network
+
+# Run container on custom network
+docker run -d \
+  --name manim-gpt \
+  --network manim-network \
+  -p 8000:8000 \
+  -p 5173:5173 \
+  manim-gpt:latest
+```
+
+### Health Checks
+
+```bash
+# Check container health
+docker inspect --format='{{.State.Health.Status}}' manim-gpt
+
+# Manual health check
+curl http://localhost:8000/health
+```
+
+### Build with Cache
+
+```bash
+# Use GitHub Actions cache
+docker build \
+  --cache-from ghcr.io/YOUR_USERNAME/manim-gpt:latest \
+  -t manim-gpt:latest .
 ```
 
 ## Troubleshooting
 
 ### Build Issues
 
-**Problem:** Nix build fails with "experimental features"
+**Problem:** Build fails during Python package installation
 ```bash
-# Solution: Enable flakes
-echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-```
-
-**Problem:** Docker build fails on ARM (M1/M2 Mac)
-```bash
-# Solution: Use multi-platform build
-docker buildx build --platform linux/arm64 -t manim-gpt:latest .
-```
-
-**Problem:** UV sync fails in container
-```bash
-# Solution: Clear cache and rebuild
+# Solution: Clean build without cache
 docker build --no-cache -t manim-gpt:latest .
+```
+
+**Problem:** Build fails on ARM (M1/M2 Mac)
+```bash
+# Solution: Specify platform
+docker build --platform linux/arm64 -t manim-gpt:latest .
+```
+
+**Problem:** Frontend build fails
+```bash
+# Solution: Check Node.js installation in builder stage
+docker build --target builder -t test .
+docker run -it test node --version
 ```
 
 ### Runtime Issues
@@ -426,15 +353,34 @@ docker logs manim-gpt
 docker run -it --entrypoint /bin/bash manim-gpt:latest
 ```
 
+**Problem:** Frontend not accessible
+```bash
+# Check if both services are running
+docker exec manim-gpt ps aux
+
+# Check frontend logs
+docker logs manim-gpt 2>&1 | grep -i vite
+```
+
+**Problem:** Backend API errors
+```bash
+# Check API logs
+docker logs manim-gpt 2>&1 | grep -i uvicorn
+
+# Test API directly
+curl http://localhost:8000/health
+```
+
 **Problem:** LaTeX errors
 ```bash
-# The Nix build includes full TeXLive
-# If using custom Dockerfile, ensure texlive is installed
+# TeX Live is included in the image
+# Verify installation:
+docker exec manim-gpt latex --version
 ```
 
 **Problem:** FFmpeg not found
 ```bash
-# Verify FFmpeg in container
+# Verify FFmpeg installation
 docker exec manim-gpt ffmpeg -version
 ```
 
@@ -445,45 +391,71 @@ docker exec manim-gpt ffmpeg -version
 # Increase resources
 docker update --cpus=4 --memory=8g manim-gpt
 
-# Use quality presets
-# In .env: MANIM_QUALITY=low
+# Use lower quality settings
+# Set MANIM_QUALITY=low in environment
 ```
 
-**Problem:** Large image size
+**Problem:** Large image size (7.66GB)
 ```bash
-# Use Dockerfile.nix for smaller images
-# Or use multi-stage builds to reduce layers
+# The image includes:
+# - Full TeX Live distribution (~2GB)
+# - Node.js and npm packages
+# - All graphics libraries
+# - Python packages with C extensions
+#
+# This is expected for a complete Manim environment
+# To reduce size, consider:
+# - Removing TeX Live docs/sources (already done)
+# - Using production build of frontend
+# - Removing unused packages
 ```
 
 ## Security Best Practices
 
 1. **Never commit API keys** - use environment variables or secrets
 2. **Use read-only volumes** where possible
-3. **Run container as non-root user** (configured in Dockerfile)
-4. **Scan images regularly**:
+3. **Run with resource limits** to prevent resource exhaustion
+4. **Keep images updated**:
+   ```bash
+   docker pull ghcr.io/YOUR_USERNAME/manim-gpt:latest
+   ```
+5. **Scan images for vulnerabilities**:
    ```bash
    docker scan manim-gpt:latest
    ```
-5. **Keep base images updated**:
-   ```bash
-   nix flake update
-   docker-compose pull
-   ```
+
+## Image Architecture
+
+### Multi-Stage Build Benefits
+
+- **Smaller final image**: Build tools and dev headers are not included in runtime
+- **Security**: Reduced attack surface with minimal runtime dependencies
+- **Performance**: Optimized layers with proper caching
+- **Maintainability**: Clear separation between build and runtime environments
+
+### Layer Optimization
+
+The Dockerfile is optimized for layer caching:
+1. System dependencies installed first (rarely change)
+2. Python dependencies next (change occasionally)
+3. Application code last (changes frequently)
+4. Frontend built separately with its own caching
+
+This ensures fast rebuilds during development.
+
+## Resources
+
+- [Docker Documentation](https://docs.docker.com/)
+- [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+- [Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
+- [Manim Documentation](https://docs.manim.community/)
 
 ## Contributing
 
 When adding new dependencies:
 
-1. Update `pyproject.toml`
-2. Update `flake.nix` if system dependencies needed
-3. Rebuild Docker image
-4. Test all three build methods
+1. Update `pyproject.toml` for Python packages
+2. Update `frontend/package.json` for npm packages
+3. Add system dependencies to Dockerfile if needed
+4. Test the build locally
 5. Update this documentation
-
-## Resources
-
-- [Nix Package Manager](https://nixos.org/)
-- [Docker Documentation](https://docs.docker.com/)
-- [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
-- [Nix Flakes](https://nixos.wiki/wiki/Flakes)
-- [Manim Documentation](https://docs.manim.community/)

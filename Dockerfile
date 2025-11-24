@@ -1,94 +1,190 @@
-# Multi-stage Dockerfile using Nix for manim-gpt
-# This creates a reproducible build environment with all dependencies
+# Optimized multi-stage Dockerfile for manim-gpt using Debian
+# Migrated from NixOS to reduce image size and improve compatibility
+# Expected final size: ~1.3GB (vs ~2.5-3.5GB with NixOS)
 
-# Stage 1: Nix builder stage
-FROM nixos/nix:latest AS builder
+# ============================================================================
+# Stage 1: Builder - Has all build tools and dev headers
+# ============================================================================
+FROM debian:bookworm AS builder
 
-# Enable flakes and nix-command (experimental features)
-RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+# Install build dependencies and dev headers
+RUN apt-get update && apt-get install -y \
+    # Core build tools
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    pkg-config \
+    meson \
+    ninja-build \
+    # Python development (Debian Bookworm has Python 3.11)
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    # Graphics library development headers
+    libcairo2-dev \
+    libpango1.0-dev \
+    libglib2.0-dev \
+    libharfbuzz-dev \
+    libfontconfig1-dev \
+    libfreetype-dev \
+    libpixman-1-dev \
+    libpng-dev \
+    # X11 development headers
+    libxcb1-dev \
+    libx11-dev \
+    x11proto-dev \
+    libxcb-render0-dev \
+    libxcb-shm0-dev \
+    # Utilities
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copy the Nix configuration
-WORKDIR /build
-COPY .idx/dev.nix .
+# Install uv package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
-# Create a shell.nix that uses the dev.nix configuration
-RUN echo '{ pkgs ? import <nixpkgs> {} }:' > shell.nix && \
-    echo 'let' >> shell.nix && \
-    echo '  devEnv = import ./dev.nix { inherit pkgs; };' >> shell.nix && \
-    echo 'in' >> shell.nix && \
-    echo 'pkgs.mkShell {' >> shell.nix && \
-    echo '  buildInputs = devEnv.packages;' >> shell.nix && \
-    echo '  shellHook = '"'"'' >> shell.nix && \
-    echo '    ${builtins.concatStringsSep "\n" (pkgs.lib.mapAttrsToList (name: value: "export ${name}=\"${value}\"") devEnv.env)}' >> shell.nix && \
-    echo '  '"'"';' >> shell.nix && \
-    echo '}' >> shell.nix
+# Set build environment variables
+ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
+    PYTHONUNBUFFERED=1
 
-# Build the Nix environment and export it
-RUN nix-shell shell.nix --run "echo 'Nix environment built successfully'"
-
-# Stage 2: Runtime stage
-FROM nixos/nix:latest
-
-# Enable flakes and nix-command
-RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-
-# Install necessary system packages
-RUN nix-env -iA \
-    nixpkgs.python314 \
-    nixpkgs.uv \
-    nixpkgs.gcc \
-    nixpkgs.cairo \
-    nixpkgs.pkg-config \
-    nixpkgs.ffmpeg \
-    nixpkgs.pango \
-    nixpkgs.glib \
-    nixpkgs.harfbuzz \
-    nixpkgs.fontconfig \
-    nixpkgs.freetype \
-    nixpkgs.ghostscript \
-    nixpkgs.nodejs_20
-
-# Install TeX Live for Manim
-RUN nix-env -iA nixpkgs.texlive.combined.scheme-medium
-
-# Set environment variables for building Python packages
-ENV PKG_CONFIG_PATH=/nix/var/nix/profiles/default/lib/pkgconfig
-ENV PYTHONUNBUFFERED=1
-ENV UV_SYSTEM_PYTHON=1
-
-# Create app directory
+# Set up app directory
 WORKDIR /app
 
-# Copy project files
-COPY pyproject.toml ./
-COPY .env.example ./.env.example
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
 
-# Copy application code
+# Build Python dependencies with C extensions
+RUN uv venv && \
+    . .venv/bin/activate && \
+    uv sync --frozen
+
+# Install Node.js 20 for frontend build
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy application code (after deps to leverage caching)
 COPY api ./api
 COPY models ./models
 COPY services ./services
 COPY utils ./utils
 COPY main.py ./
-COPY gradio_app.py ./
 
-# Copy frontend (optional, for React UI)
+# Copy and build frontend
 COPY frontend ./frontend
+WORKDIR /app/frontend
+RUN npm install && npm run build
+WORKDIR /app
 
-# Install Python dependencies using uv
-RUN uv sync --frozen
+# ============================================================================
+# Stage 2: Runtime - Minimal runtime dependencies only
+# ============================================================================
+FROM debian:bookworm-slim
+
+# Install ONLY runtime dependencies (no build tools or -dev packages)
+RUN apt-get update && apt-get install -y \
+    # Shell and process management
+    bash \
+    procps \
+    # Python runtime (Debian Bookworm has Python 3.11)
+    python3 \
+    python3-pip \
+    # Graphics runtime libraries (no -dev)
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libglib2.0-0 \
+    libharfbuzz0b \
+    libfontconfig1 \
+    libfreetype6 \
+    libpixman-1-0 \
+    libpng16-16 \
+    # X11 runtime libraries
+    libxcb1 \
+    libx11-6 \
+    libxcb-render0 \
+    libxcb-shm0 \
+    # Media processing
+    ffmpeg \
+    # Document processing
+    ghostscript \
+    # TeX Live for LaTeX rendering
+    texlive-latex-base \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-fonts-extra \
+    texlive-science \
+    dvisvgm \
+    # Utilities
+    curl \
+    ca-certificates \
+    # Fonts for Manim
+    fonts-liberation \
+    fonts-dejavu-core \
+    gsfonts \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install Node.js 20 (for frontend if needed)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy uv from builder stage (avoids needing build tools in runtime)
+COPY --from=builder /root/.local/bin/uv /usr/local/bin/uv
+COPY --from=builder /root/.local/bin/uvx /usr/local/bin/uvx
+
+# Optimize TeX Live size by removing docs and sources
+RUN rm -rf /usr/share/texlive/texmf-dist/doc \
+    && rm -rf /usr/share/texlive/texmf-dist/source
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+
+# Set up app directory
+WORKDIR /app
+
+# Copy .env.example
+COPY .env.example ./.env.example
+
+# Copy application and virtual environment from builder
+COPY --from=builder /app ./
+
+# Create startup script to run both backend and frontend
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
+    echo 'echo "Starting Manim GPT services..."' >> /app/start.sh && \
+    echo 'cd /app/frontend && npm run dev -- --host 0.0.0.0 --port 5173 &' >> /app/start.sh && \
+    echo 'FRONTEND_PID=$!' >> /app/start.sh && \
+    echo 'cd /app && uv run uvicorn main:app --host 0.0.0.0 --port 8000 &' >> /app/start.sh && \
+    echo 'BACKEND_PID=$!' >> /app/start.sh && \
+    echo 'echo "Frontend running on port 5173 (PID: $FRONTEND_PID)"' >> /app/start.sh && \
+    echo 'echo "Backend running on port 8000 (PID: $BACKEND_PID)"' >> /app/start.sh && \
+    echo 'wait' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Clean up Python cache files to reduce size
+RUN find /app/.venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/.venv -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # Create directory for temporary video files
 RUN mkdir -p /tmp/manim_videos && chmod 777 /tmp/manim_videos
 
 # Expose ports
-# 8000 for FastAPI backend
-# 7860 for Gradio UI
-# 5173 for React frontend (if needed)
-EXPOSE 8000 7860 5173
+EXPOSE 8000 5173
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Default command - run the FastAPI backend
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run both backend and frontend
+CMD ["/bin/bash", "/app/start.sh"]
