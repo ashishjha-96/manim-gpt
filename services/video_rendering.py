@@ -145,7 +145,7 @@ async def render_manim_video(
 
                 # Log all output
                 if decoded_line:
-                    logger.info(decoded_line)
+                    logger.debug(decoded_line)
 
         # Read both streams concurrently with timeout
         try:

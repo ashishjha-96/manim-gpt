@@ -8,10 +8,11 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
+
 from utils.logger import get_logger
 
 
-logger = get_logger("Code Validator")
+logger = get_logger("CodeValidator")
 
 class ValidationResult:
     """Result of code validation."""
@@ -191,18 +192,7 @@ async def validate_manim_dry_run(
 
                 # Emit progress for important lines
                 if decoded_line:
-                    logger.info(decoded_line)
-                    # # Parse Manim output for progress indicators
-                    # if "Animation" in decoded_line or "Rendering" in decoded_line:
-                    #     emit_progress("rendering", decoded_line)
-                    # elif "%" in decoded_line or "frame" in decoded_line.lower():
-                    #     emit_progress("progress", decoded_line)
-                    # elif "Error" in decoded_line or "Exception" in decoded_line:
-                    #     emit_progress("error", decoded_line)
-                    # elif "Warning" in decoded_line:
-                    #     emit_progress("warning", decoded_line)
-                    # else:
-                    #     emit_progress(stream_name, decoded_line)
+                    logger.debug(decoded_line)
 
         # Read both streams concurrently with timeout
         try:
