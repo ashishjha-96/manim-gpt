@@ -115,7 +115,8 @@ async def _generate_code_background(
     model: str,
     temperature: float,
     max_tokens: int,
-    max_iterations: int
+    max_iterations: int,
+    api_token: str | None = None,
 ):
     """Background task to run code generation and update session with progress."""
     try:
@@ -171,6 +172,7 @@ async def _generate_code_background(
             temperature=temperature,
             max_tokens=max_tokens,
             max_iterations=max_iterations,
+            api_token=api_token,
             progress_callback=progress_callback
         )
 
@@ -221,7 +223,8 @@ async def start_iterative_generation(request: IterativeGenerationRequest):
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            max_iterations=request.max_iterations
+            max_iterations=request.max_iterations,
+            api_token=request.api_token,
         )
 
         logger.info(f"Created session {session.session_id}")
