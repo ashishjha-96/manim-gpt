@@ -153,8 +153,6 @@ ENV PYTHONUNBUFFERED=1 \
 # Set up app directory
 WORKDIR /app
 
-# Copy .env.example
-COPY .env.example ./.env.example
 
 # Copy application and virtual environment from builder
 COPY --from=builder /app ./

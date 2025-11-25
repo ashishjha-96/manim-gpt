@@ -47,7 +47,6 @@ Thumbs.db
 
 # UV
 .uv/
-uv.lock
 
 # FastAPI
 *.log
