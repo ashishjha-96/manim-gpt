@@ -6,6 +6,12 @@ on:
     paths:
       - 'Dockerfile.builder'
       - '.github/workflows/docker-builder.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'README*'
+      - 'LICENSE'
+      - '.gitignore'
   schedule:
     - cron: '0 0 1 * *'  # Monthly rebuild for security updates
 

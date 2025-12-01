@@ -6,6 +6,12 @@ on:
     paths:
       - 'Dockerfile.runtime'
       - '.github/workflows/docker-runtime.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'README*'
+      - 'LICENSE'
+      - '.gitignore'
   schedule:
     - cron: '0 0 15 * *'  # Mid-month rebuild for security updates
 

@@ -18,6 +18,12 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/docker-publish.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'README*'
+      - 'LICENSE'
+      - '.gitignore'
 
 jobs:
   build-and-push:

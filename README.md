@@ -25,14 +25,14 @@ cd frontend && npm install && npm run dev  # React UI at http://localhost:5173
 
 ## Features
 
-✨ **AI-Powered Generation** - Natural language to Manim animations with iterative refinement
-🎬 **Modern React UI** - Beautiful Tailwind CSS interface with real-time updates
-🗣️ **Audio Narration** - Synchronized TTS narration with educational subtitles (Piper TTS)
-🔄 **Smart Workflow** - LangGraph-powered automatic error detection and correction
-📹 **Multi-Format Export** - MP4, WebM, GIF, MOV with quality presets (480p to 4K)
-🤖 **100+ LLM Models** - OpenAI, Anthropic, Cerebras, Google, and more via LiteLLM
-⚡ **Real-time Streaming** - Watch code generation and refinement live
-🎨 **Customizable** - Background colors, frame rates, subtitle styles
+✨ **AI-Powered Generation** - Natural language to Manim animations with iterative refinement \
+🎬 **Modern React UI** - Beautiful Tailwind CSS interface with real-time updates \
+🗣️ **Audio Narration** - Synchronized TTS narration with educational subtitles (Piper TTS) \
+🔄 **Smart Workflow** - LangGraph-powered automatic error detection and correction \
+📹 **Multi-Format Export** - MP4, WebM, GIF, MOV with quality presets (480p to 4K) \
+🤖 **100+ LLM Models** - OpenAI, Anthropic, Cerebras, Google, and more via LiteLLM \
+⚡ **Real-time Streaming** - Watch code generation and refinement live \
+🎨 **Customizable** - Background colors, frame rates, subtitle styles 
 
 ## Documentation
 
