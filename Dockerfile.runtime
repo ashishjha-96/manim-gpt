@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libharfbuzz0b \
     libfontconfig1 \
+    fontconfig \
     libfreetype6 \
     libpixman-1-0 \
     libpng16-16 \
@@ -35,16 +36,21 @@ RUN apt-get update && apt-get install -y \
     # TeX Live for LaTeX rendering
     texlive-latex-base \
     texlive-latex-extra \
+    texlive-latex-recommended \
     texlive-fonts-recommended \
     texlive-fonts-extra \
     texlive-science \
     dvisvgm \
+    # Additional font packages for proper rendering
+    cm-super \
+    lmodern \
     # Utilities
     curl \
     ca-certificates \
     # Fonts for Manim
     fonts-liberation \
     fonts-dejavu-core \
+    fonts-noto \
     gsfonts \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -52,6 +58,9 @@ RUN apt-get update && apt-get install -y \
 # Optimize TeX Live size by removing docs and sources (saves ~500MB)
 RUN rm -rf /usr/share/texlive/texmf-dist/doc && \
     rm -rf /usr/share/texlive/texmf-dist/source
+
+# Update font cache to ensure all fonts are indexed
+RUN fc-cache -fv
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
