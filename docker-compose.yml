@@ -1,13 +1,15 @@
 version: '3.8'
 
 services:
-  # FastAPI Backend
-  manim-gpt-api:
+  # Manim GPT - Combined FastAPI backend + React frontend
+  manim-gpt:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: manim-gpt-api
+    image: ajha2025/manim-gpt:latest
+    container_name: manim-gpt
     ports:
+      # Single port - serves both API and frontend
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
@@ -30,50 +32,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - manim-network
 
-  # Gradio UI (Optional)
-  manim-gpt-gradio:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: manim-gpt-gradio
-    command: ["uv", "run", "gradio_app.py"]
-    ports:
-      - "7860:7860"
-    environment:
-      - PYTHONUNBUFFERED=1
-      - API_URL=http://manim-gpt-api:8000
-    depends_on:
-      - manim-gpt-api
-    restart: unless-stopped
-    networks:
-      - manim-network
-
-  # React Frontend (Optional)
-  manim-gpt-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.frontend
-    container_name: manim-gpt-frontend
-    ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on:
-      - manim-gpt-api
-    restart: unless-stopped
-    networks:
-      - manim-network
-    # Uncomment if you have a separate Dockerfile for frontend
-    # profiles:
-    #   - frontend
-
-networks:
-  manim-network:
-    driver: bridge
-
-volumes:
-  manim-videos:
-    driver: local
+  # Gradio UI (Optional) - Uncomment to use legacy Gradio interface
+  # manim-gpt-gradio:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: manim-gpt-gradio
+  #   command: ["uv", "run", "gradio_app.py"]
+  #   ports:
+  #     - "7860:7860"
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #     - API_URL=http://manim-gpt:8000
+  #   depends_on:
+  #     - manim-gpt
+  #   restart: unless-stopped

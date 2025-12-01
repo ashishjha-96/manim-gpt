@@ -1,0 +1,55 @@
+name: Build and Push Builder Image
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    paths:
+      - 'Dockerfile.builder'
+      - '.github/workflows/docker-builder.yml'
+  schedule:
+    - cron: '0 0 1 * *'  # Monthly rebuild for security updates
+
+jobs:
+  build-builder:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Generate tags
+        id: meta
+        run: |
+          DATE_TAG=$(date +%Y.%m.%d)
+          echo "date_tag=${DATE_TAG}" >> $GITHUB_OUTPUT
+          echo "version_tag=v1.0.0" >> $GITHUB_OUTPUT
+
+      - name: Build and push builder image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.builder
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ajha2025/manim-gpt:builder-latest
+            ajha2025/manim-gpt:builder-${{ steps.meta.outputs.date_tag }}
+            ajha2025/manim-gpt:builder-${{ steps.meta.outputs.version_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=manim-gpt-builder
+            org.opencontainers.image.description=Builder base image for manim-gpt
+            org.opencontainers.image.version=${{ steps.meta.outputs.version_tag }}
