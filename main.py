@@ -40,14 +40,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers - MUST come before static file serving
-app.include_router(model_router)
-app.include_router(session_router)
+# Create API router with /api prefix
+from fastapi import APIRouter
+api_router = APIRouter(prefix="/api")
+
+# Include routers under /api prefix - MUST come before static file serving
+api_router.include_router(model_router)
+api_router.include_router(session_router)
 
 
-@app.get("/health")
+@api_router.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+# Mount the API router to the app
+app.include_router(api_router)
 
 
 # Mount static files for production frontend
@@ -67,7 +75,7 @@ if frontend_dist.exists():
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         # Don't interfere with API routes (let them return 404 if not found)
-        if full_path.startswith(("api/", "session/", "models/", "health")):
+        if full_path.startswith("api/"):
             # This will naturally 404 if the route doesn't exist
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Not found")
@@ -91,15 +99,15 @@ else:
             "status": "running",
             "mode": "api-only",
             "endpoints": {
-                "iterative_generate": "/session/generate",
-                "session_status": "/session/status/{session_id}",
-                "render_session": "/session/render (async)",
-                "render_status": "/session/render-status/{session_id}",
-                "download_session_video": "/session/download",
-                "list_sessions": "/session/list",
-                "list_providers": "/models/providers",
-                "list_models_by_provider": "/models/providers/{provider}",
-                "health": "/health"
+                "iterative_generate": "/api/session/generate",
+                "session_status": "/api/session/status/{session_id}",
+                "render_session": "/api/session/render (async)",
+                "render_status": "/api/session/render-status/{session_id}",
+                "download_session_video": "/api/session/download",
+                "list_sessions": "/api/session/list",
+                "list_providers": "/api/models/providers",
+                "list_models_by_provider": "/api/models/providers/{provider}",
+                "health": "/api/health"
             }
         }
 
