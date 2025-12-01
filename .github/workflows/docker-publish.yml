@@ -4,26 +4,12 @@ on:
   workflow_dispatch:  # Manual trigger
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Always build on version tags
     branches:
-      - main  # Also build on main branch pushes for testing
-    paths:
-      - 'Dockerfile'
-      - 'main.py'
-      - 'api/**'
-      - 'models/**'
-      - 'services/**'
-      - 'utils/**'
-      - 'frontend/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/docker-publish.yml'
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'README*'
-      - 'LICENSE'
-      - '.gitignore'
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build-and-push:
