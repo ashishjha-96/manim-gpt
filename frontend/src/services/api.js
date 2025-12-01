@@ -198,7 +198,7 @@ class ManimAPI {
     quality = 'medium',
     backgroundColor = null,
     includeSubtitles = true,
-    subtitleFontSize = 24,
+    subtitleFontSize = 12,
     subtitleStyle = null,
     enableAudio = false,
     audioLanguage = 'EN',

@@ -49,7 +49,7 @@ export default function RenderSettings({
   const [quality, setQuality] = useState('medium');
   const [backgroundColor, setBackgroundColor] = useState('#000000');
   const [includeSubtitles, setIncludeSubtitles] = useState(true);
-  const [subtitleFontSize, setSubtitleFontSize] = useState(24);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(12);
   const [enableAudio, setEnableAudio] = useState(false);
   const [audioLanguage, setAudioLanguage] = useState('EN');
   const [audioSpeakerId, setAudioSpeakerId] = useState(0);
