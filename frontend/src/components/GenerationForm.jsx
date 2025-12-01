@@ -12,7 +12,7 @@ const EXAMPLE_PROMPTS = [
 
 export default function GenerationForm({ onGenerate, isGenerating }) {
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState('cerebras/zai-glm-4.6');
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(2000);
   const [maxIterations, setMaxIterations] = useState(5);
