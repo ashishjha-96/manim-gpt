@@ -64,14 +64,40 @@ async def render_manim_video(
 
     try:
         emit_progress("preparing", "Setting up rendering environment")
-        # Set up fontconfig to find fonts in Nix store
+
+        # Detect environment and set up fontconfig accordingly
+        # Check if running in Nix environment or Docker/standard Linux
+        nix_font_path = Path("/nix/store/1mjlla0fc468wl9cphnn2ivpfx02mr7j-dejavu-fonts-minimal-2.37/share/fonts")
+        is_docker = Path("/.dockerenv").exists() or not nix_font_path.exists()
+
+        # Set up fontconfig to find fonts
         # This fixes the "white boxes" issue where text doesn't render
         fontconfig_dir = Path(temp_dir) / "fontconfig"
         fontconfig_dir.mkdir()
         fontconfig_path = fontconfig_dir / "fonts.conf"
 
-        with open(fontconfig_path, "w") as f:
-            f.write("""<?xml version="1.0"?>
+        if is_docker:
+            # Docker/Debian environment - use system font paths
+            logger.info("Detected Docker/Debian environment - using system fonts")
+            with open(fontconfig_path, "w") as f:
+                f.write("""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- System fonts from Debian packages -->
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <cachedir>~/.cache/fontconfig</cachedir>
+  <!-- Rebuild cache automatically -->
+  <rescan>
+    <int>30</int>
+  </rescan>
+</fontconfig>
+""")
+        else:
+            # Nix environment - use Nix store paths
+            logger.info("Detected Nix environment - using Nix store fonts")
+            with open(fontconfig_path, "w") as f:
+                f.write("""<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
   <!-- DejaVu fonts from Nix store -->
