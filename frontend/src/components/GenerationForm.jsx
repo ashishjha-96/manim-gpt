@@ -16,6 +16,7 @@ export default function GenerationForm({ onGenerate, isGenerating }) {
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(2000);
   const [maxIterations, setMaxIterations] = useState(5);
+  const [apiToken, setApiToken] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleSubmit = (e) => {
@@ -28,6 +29,7 @@ export default function GenerationForm({ onGenerate, isGenerating }) {
       temperature,
       max_tokens: maxTokens,
       max_iterations: maxIterations,
+      api_token: apiToken || undefined,
     });
   };
 
@@ -96,6 +98,24 @@ export default function GenerationForm({ onGenerate, isGenerating }) {
               onChange={setModel}
               disabled={isGenerating}
             />
+
+            {/* API Token */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Inference provider token
+              </label>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder="LLM_API_TOKEN"
+                disabled={isGenerating}
+                className="input-field disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Optional. Will override environment variables if provided.
+              </p>
+            </div>
 
             {/* Temperature */}
             <div>
