@@ -54,8 +54,8 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Set build environment variables
 # Reduce optimization to prevent QEMU segfaults during cross-compilation
-ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
-    PYTHONUNBUFFERED=1 \
+# PKG_CONFIG_PATH is not hardcoded - pkg-config auto-discovers paths on multi-arch systems
+ENV PYTHONUNBUFFERED=1 \
     CFLAGS="-O1" \
     CXXFLAGS="-O1"
 
