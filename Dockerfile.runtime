@@ -63,8 +63,8 @@ RUN rm -rf /usr/share/texlive/texmf-dist/doc && \
 RUN fc-cache -fv
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+# LD_LIBRARY_PATH not set - default paths work on all architectures (amd64/arm64)
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
