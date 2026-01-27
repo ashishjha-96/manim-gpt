@@ -98,6 +98,7 @@ class IterativeGenerationRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=2000, description="Maximum tokens for code generation")
     temperature: Optional[float] = Field(default=0.7, description="Temperature for code generation")
     max_iterations: Optional[int] = Field(default=5, description="Maximum number of refinement iterations")
+    api_token: Optional[str] = Field(default=None, description="API token for the LLM provider")
 
 
 class IterativeGenerationResponse(BaseModel):

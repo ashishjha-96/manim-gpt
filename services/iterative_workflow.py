@@ -33,6 +33,7 @@ class WorkflowState(TypedDict):
     temperature: float
     max_tokens: int
     max_iterations: int
+    api_token: str | None
     current_iteration: int
     messages: Annotated[Sequence[BaseMessage], operator.add]
     generated_code: str | None
@@ -120,15 +121,19 @@ Please generate corrected Manim code that fixes these issues."""
 
     # Call LLM and track time
     start_time = time.time()
-    response = await acompletion(
-        model=state["model"],
-        messages=[
+    acompletion_params = {
+        "model": state["model"],
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ],
-        max_tokens=state["max_tokens"],
-        temperature=state["temperature"],
-    )
+        "max_tokens": state["max_tokens"],
+        "temperature": state["temperature"],
+    }
+    if state.get("api_token"):
+        acompletion_params["api_key"] = state["api_token"]
+
+    response = await acompletion(**acompletion_params)
     end_time = time.time()
     time_taken = end_time - start_time
 
@@ -396,6 +401,7 @@ async def run_iterative_generation(
     temperature: float,
     max_tokens: int,
     max_iterations: int = 5,
+    api_token: str | None = None,
     progress_callback: Optional[Callable[[dict], None]] = None
 ) -> WorkflowState:
     """
@@ -424,6 +430,7 @@ async def run_iterative_generation(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "max_iterations": max_iterations,
+        "api_token": api_token,
         "current_iteration": 0,
         "messages": [],
         "generated_code": None,
